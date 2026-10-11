@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   getFarmContext,
   farmCookieHeader,
+  isUuid,
 } from "@/src/application/farm-context";
 import { correctRecordedEvent } from "@/src/application/persist-farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
@@ -15,12 +16,6 @@ const changesSchema = z
     unit: z.string().nullable().optional(),
   })
   .strict();
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-    value,
-  );
-}
 
 export async function PATCH(
   request: Request,

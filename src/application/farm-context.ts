@@ -6,6 +6,12 @@ import {
 
 const farmCookieName = "fieldledger_farm";
 
+export function isUuid(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+    value,
+  );
+}
+
 function readCookie(request: Request): string | undefined {
   const cookieHeader = request.headers.get("cookie");
   const match = cookieHeader?.match(
@@ -21,9 +27,7 @@ export async function getFarmContext(
   const cookieFarmId = readCookie(request);
   if (
     cookieFarmId &&
-    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
-      cookieFarmId,
-    ) &&
+    isUuid(cookieFarmId) &&
     (await findFarm(db, cookieFarmId))
   ) {
     return { farmId: cookieFarmId, isNew: false };

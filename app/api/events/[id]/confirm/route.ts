@@ -1,6 +1,7 @@
 import {
   getFarmContext,
   farmCookieHeader,
+  isUuid,
 } from "@/src/application/farm-context";
 import { confirmRecordedEvent } from "@/src/application/persist-farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
@@ -10,7 +11,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ): Promise<Response> {
   const { id } = await params;
-  if (!/^[0-9a-f-]{36}$/i.test(id))
+  if (!isUuid(id))
     return Response.json(
       { error: "Farm event was not found." },
       { status: 404 },
