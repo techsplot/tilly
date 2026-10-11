@@ -14,6 +14,11 @@ vi.mock("../src/infrastructure/db/client", () => ({
 vi.mock("../src/application/farm-context", () => ({
   getFarmContext: mockGetFarmContext,
   farmCookieHeader: vi.fn((farmId: string) => `farm=${farmId}`),
+  isUuid: vi.fn((value: string) =>
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    ),
+  ),
 }));
 vi.mock("../src/application/persist-farm-event", () => ({
   recordFarmEvent: mockRecordFarmEvent,
