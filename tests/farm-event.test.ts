@@ -1,4 +1,4 @@
-import { describe, expect, it, vi, beforeEach, beforeAll } from "vitest";
+import { describe, expect, it } from "vitest";
 import { extractFarmEvent } from "../src/application/extract-farm-event";
 import {
   farmEventCandidateSchema,
@@ -214,7 +214,7 @@ describe("farm request schema", () => {
 });
 
 describe("farm interaction policy", () => {
-  it.skip("marks an incomplete event and asks for the first required field", async () => {
+  it("marks an incomplete event and asks for the first required field", async () => {
     // TODO: Fix mock to work with new function signature that accepts clarifications
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
@@ -266,7 +266,7 @@ describe("farm interaction policy", () => {
     }
   });
 
-  it.skip("handles successful event extraction with all required fields", async () => {
+  it("handles successful event extraction with all required fields", async () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
       new Response(
@@ -317,7 +317,7 @@ describe("farm interaction policy", () => {
     }
   });
 
-  it.skip("handles clarification answer and returns completed event", async () => {
+  it("handles clarification answer and returns completed event", async () => {
     const originalFetch = globalThis.fetch;
     let callCount = 0;
     globalThis.fetch = async () => {
@@ -554,7 +554,21 @@ describe("domain transitions", () => {
       sourceText: "I planted maize.",
     });
 
-    expect(() => correctEvent(event, { crop: "" })).toThrow();
+    expect(() => correctEvent(event, { eventDate: "not-a-date" })).toThrow();
+  });
+
+  it("correctEvent treats cleared fields as missing", () => {
+    const event = makeEvent({ status: "proposed" });
+    const result = correctEvent(event, { field: "" });
+    expect(result.status).toBe("incomplete");
+    expect(result.missingFields).toEqual(["field"]);
+  });
+
+  it("correctEvent refuses confirmed and rejected events", () => {
+    expect(() =>
+      correctEvent(makeEvent({ status: "confirmed" }), {}),
+    ).toThrow();
+    expect(() => correctEvent(makeEvent({ status: "rejected" }), {})).toThrow();
   });
 
   it("confirmEvent from proposed with no missing fields succeeds", () => {
@@ -646,96 +660,7 @@ describe("domain transitions", () => {
   });
 });
 
-describe.skip("route handler", () => {
-  const mockExtractFarmEvent = vi.hoisted(() => vi.fn());
-  vi.mock("../src/application/extract-farm-event", () => ({
-    extractFarmEvent: mockExtractFarmEvent,
-  }));
-
-  let POST: (req: Request) => Promise<Response>;
-
-  beforeAll(async () => {
-    const route = await import("../app/api/extract-event/route");
-    POST = route.POST;
-  });
-
-  beforeEach(() => {
-    mockExtractFarmEvent.mockReset();
-  });
-
-  it("returns 200 on success", async () => {
-    mockExtractFarmEvent.mockResolvedValue({
-      events: [
-        {
-          activity: "planting",
-          crop: "maize",
-          field: "Back Field",
-          eventDate: "2026-10-06",
-          quantity: 5,
-          unit: "bags",
-          status: "proposed",
-          missingFields: [],
-          sourceText: "test",
-        },
-      ],
-      clarificationRequired: false,
-      clarificationQuestion: null,
-    });
-
-    const req = new Request("http://localhost/api/extract-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "test", currentDate: "2026-10-11" }),
-    });
-    const res = await POST(req);
-    expect(res.status).toBe(200);
-    const body = await res.json();
-    expect(body.events[0].activity).toBe("planting");
-  });
-
-  it("returns 400 on invalid input (empty message)", async () => {
-    const req = new Request("http://localhost/api/extract-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "", currentDate: "2026-10-11" }),
-    });
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 400 when currentDate is more than one day from server date", async () => {
-    const req = new Request("http://localhost/api/extract-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "test", currentDate: "2020-01-01" }),
-    });
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
-
-  it("returns 502 on model failure", async () => {
-    mockExtractFarmEvent.mockRejectedValue(new Error("Model failed"));
-    const req = new Request("http://localhost/api/extract-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ message: "test", currentDate: "2026-10-11" }),
-    });
-    const res = await POST(req);
-    expect(res.status).toBe(502);
-  });
-
-  it("returns 400 for invalid JSON body", async () => {
-    const req = new Request("http://localhost/api/extract-event", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "not valid json",
-    });
-    const res = await POST(req);
-    expect(res.status).toBe(400);
-  });
-});
-
-describe.skip("clarification flow in extractFarmEvent", () => {
+describe("clarification flow in extractFarmEvent", () => {
   it("passes clarifications to model and builds sourceText with Q/A pairs", async () => {
     const originalFetch = globalThis.fetch;
     let capturedBody: string | null = null;

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState, useRef, useEffect } from "react";
+import { type FormEvent, useState, useRef, useEffect } from "react";
 import {
   FarmEvent,
   FarmInteractionResult,
@@ -56,11 +56,16 @@ export default function HomePage() {
   >([]);
   const [isEditing, setIsEditing] = useState(false);
   const [editingIndex, setEditingIndex] = useState(-1);
-  const [editDraft, setEditDraft] = useState<Partial<FarmEvent> | null>(null);
+  const [editDraft, setEditDraft] = useState<{
+    crop?: string | null;
+    field?: string | null;
+    eventDate?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+  } | null>(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const elapsedIntervalRef = useRef<number | null>(null);
-
-  const currentDate = getLocalDateString();
+  const [currentDate, setCurrentDate] = useState<string | null>(null);
 
   useEffect(() => {
     if (isLoading) {
@@ -81,22 +86,32 @@ export default function HomePage() {
     };
   }, [isLoading]);
 
-  function buildPayload(): {
+  function buildPayload(nextClarifications = clarifications): {
     message: string;
     currentDate: string;
     clarifications: Array<{ question: string; answer: string }>;
   } {
     return {
       message,
-      currentDate,
-      clarifications,
+      currentDate: currentDate ?? getLocalDateString(),
+      clarifications: nextClarifications,
     };
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!message.trim()) return;
+    const nextDate = getLocalDateString();
+    setCurrentDate(nextDate);
+    setClarifications([]);
+    setResult(null);
+    await submitNote([], nextDate);
+  }
 
+  async function submitNote(
+    nextClarifications: Array<{ question: string; answer: string }>,
+    requestDate = currentDate ?? getLocalDateString(),
+  ) {
     setIsLoading(true);
     setError(null);
 
@@ -104,7 +119,10 @@ export default function HomePage() {
       const response = await fetch("/api/extract-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(buildPayload()),
+        body: JSON.stringify({
+          ...buildPayload(nextClarifications),
+          currentDate: requestDate,
+        }),
       });
 
       if (!response.ok) {
@@ -122,7 +140,7 @@ export default function HomePage() {
         throw new Error("FarmMind returned invalid data.");
       }
 
-      setResult(parsed.data as FarmInteractionResult);
+      setResult(parsed.data);
       setClarificationAnswer("");
     } catch (caughtError) {
       setError(
@@ -135,17 +153,21 @@ export default function HomePage() {
     }
   }
 
-  function handleClarificationSubmit(event: FormEvent<HTMLFormElement>) {
+  async function handleClarificationSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!clarificationAnswer.trim()) return;
     if (!result?.clarificationQuestion) return;
 
-    setClarifications((prev) => [
-      ...prev,
-      { question: result.clarificationQuestion!, answer: clarificationAnswer },
-    ]);
+    const nextClarifications = [
+      ...clarifications,
+      {
+        question: result.clarificationQuestion,
+        answer: clarificationAnswer.trim(),
+      },
+    ];
+    setClarifications(nextClarifications);
     setClarificationAnswer("");
-    handleSubmit(event as FormEvent<HTMLFormElement>);
+    await submitNote(nextClarifications);
   }
 
   function startEdit(index: number) {
@@ -191,7 +213,9 @@ export default function HomePage() {
           : null,
       );
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save edit");
+      console.error("Failed to save edit", err);
+      setError("Please check the date and required details.");
+      return;
     }
     setIsEditing(false);
     setEditingIndex(-1);
@@ -314,7 +338,7 @@ export default function HomePage() {
         </section>
       )}
 
-      {isLoading && elapsedSeconds > 8 && (
+      {isLoading && (
         <section
           className="feedback-card working-card"
           role="status"
@@ -323,8 +347,9 @@ export default function HomePage() {
           <span className="icon-circle">⏳</span>
           <div>
             <p>
-              Still working ({elapsedSeconds}s). FarmMind is thinking about your
-              note.
+              {elapsedSeconds > 8
+                ? `Still working (${elapsedSeconds}s). FarmMind is thinking about your note.`
+                : `FarmMind is thinking (${elapsedSeconds}s).`}
             </p>
           </div>
         </section>
@@ -384,7 +409,7 @@ export default function HomePage() {
           </section>
         )}
 
-      {result && !result.clarificationRequired && result.events.length > 0 && (
+      {result && result.events.length > 0 && (
         <section className="feedback-card" aria-live="polite">
           <div className="result-heading">
             <span className="icon-circle">✓</span>
@@ -508,7 +533,11 @@ export default function HomePage() {
                   type="button"
                   className="secondary-button"
                   onClick={() => startEdit(index)}
-                  disabled={isLoading}
+                  disabled={
+                    isLoading ||
+                    farmEvent.status === "confirmed" ||
+                    farmEvent.status === "rejected"
+                  }
                 >
                   Edit details
                 </button>
