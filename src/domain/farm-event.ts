@@ -34,37 +34,51 @@ export const farmEventSchema = farmEventCandidateSchema.extend({
   sourceText: z.string(),
 });
 
-export const farmInteractionSchema = z.object({
-  events: z.array(farmEventCandidateSchema),
-  clarificationRequired: z.boolean(),
-  clarificationQuestion: z.string().nullable(),
-});
+export const farmInteractionSchema = z
+  .object({
+    events: z.array(farmEventCandidateSchema),
+    clarificationRequired: z.boolean(),
+    clarificationQuestion: z.string().nullable(),
+  })
+  .refine(
+    (data) => {
+      if (data.clarificationRequired && data.clarificationQuestion === null)
+        return false;
+      if (
+        data.clarificationRequired &&
+        data.clarificationQuestion?.trim() === ""
+      )
+        return false;
+      return true;
+    },
+    {
+      message:
+        "clarificationQuestion is required when clarificationRequired is true",
+    },
+  );
 
-// Reject clarificationRequired=true with null/blank clarificationQuestion
-farmInteractionSchema.refine(
-  (data) => {
-    if (data.clarificationRequired && data.clarificationQuestion === null) return false;
-    if (data.clarificationRequired && data.clarificationQuestion?.trim() === "") return false;
-    return true;
-  },
-  { message: "clarificationQuestion is required when clarificationRequired is true" }
-);
-
-export const farmInteractionResultSchema = z.object({
-  events: z.array(farmEventSchema),
-  clarificationRequired: z.boolean(),
-  clarificationQuestion: z.string().nullable(),
-});
-
-// Reject clarificationRequired=true with null/blank clarificationQuestion
-farmInteractionResultSchema.refine(
-  (data) => {
-    if (data.clarificationRequired && data.clarificationQuestion === null) return false;
-    if (data.clarificationRequired && data.clarificationQuestion?.trim() === "") return false;
-    return true;
-  },
-  { message: "clarificationQuestion is required when clarificationRequired is true" }
-});
+export const farmInteractionResultSchema = z
+  .object({
+    events: z.array(farmEventSchema),
+    clarificationRequired: z.boolean(),
+    clarificationQuestion: z.string().nullable(),
+  })
+  .refine(
+    (data) => {
+      if (data.clarificationRequired && data.clarificationQuestion === null)
+        return false;
+      if (
+        data.clarificationRequired &&
+        data.clarificationQuestion?.trim() === ""
+      )
+        return false;
+      return true;
+    },
+    {
+      message:
+        "clarificationQuestion is required when clarificationRequired is true",
+    },
+  );
 
 // Required-field policy by activity (used by domain functions)
 const requiredFieldsByActivity: Record<
@@ -82,13 +96,16 @@ const requiredFieldsByActivity: Record<
 };
 
 // Apply the required-field policy to compute missingFields and status
-function computeMissingFieldsAndStatus(
-  event: FarmEvent
-): { missingFields: string[]; status: FarmEvent["status"] } {
+function computeMissingFieldsAndStatus(event: FarmEvent): {
+  missingFields: string[];
+  status: FarmEvent["status"];
+} {
   const activity = event.activity;
   const required = requiredFieldsByActivity[activity];
   if (!required) {
-    return { missingFields: [], status: event.status };
+    throw new Error(
+      `No required-field policy exists for activity "${activity}".`,
+    );
   }
   const missing = required.filter((field) => !event[field as keyof FarmEvent]);
   const status = missing.length > 0 ? "incomplete" : "proposed";
@@ -98,20 +115,40 @@ function computeMissingFieldsAndStatus(
 // Correct an event with the given changes; validates and recomputes missingFields
 export function correctEvent(
   event: FarmEvent,
-  changes: Partial<FarmEvent>
+  changes: {
+    crop?: string | null;
+    field?: string | null;
+    eventDate?: string | null;
+    quantity?: number | null;
+    unit?: string | null;
+  },
 ): FarmEvent {
   const updated = { ...event, ...changes } as FarmEvent;
-  const { missingFields, status } = computeMissingFieldsAndStatus(updated);
+  const parsed = farmEventCandidateSchema.safeParse({
+    activity: updated.activity,
+    crop: updated.crop,
+    field: updated.field,
+    eventDate: updated.eventDate,
+    quantity: updated.quantity,
+    unit: updated.unit,
+  });
+  if (!parsed.success) {
+    throw new Error("correctEvent: validation failed");
+  }
+  const { missingFields } = computeMissingFieldsAndStatus(updated);
+  const status = missingFields.length > 0 ? "incomplete" : "corrected";
   return { ...updated, missingFields, status };
 }
 
 // Confirm an event; only allowed from proposed or corrected with no missing fields
 export function confirmEvent(event: FarmEvent): FarmEvent {
-  if (event.status !== "proposed" && event.status !== "corrected") {
-    throw new Error("confirmEvent: only allowed from proposed or corrected status");
-  }
   if (event.missingFields.length > 0) {
     throw new Error("confirmEvent: event has missing fields");
+  }
+  if (event.status !== "proposed" && event.status !== "corrected") {
+    throw new Error(
+      "confirmEvent: only allowed from proposed or corrected status",
+    );
   }
   return { ...event, status: "confirmed" };
 }
@@ -132,15 +169,19 @@ export type FarmInteractionResult = z.infer<typeof farmInteractionResultSchema>;
 export type FarmRequest = z.infer<typeof farmRequestSchema>;
 
 export const farmRequestSchema = z.object({
-  message: z.string().trim().min(1).max(1000),
+  message: z
+    .string()
+    .trim()
+    .min(1, "Message cannot be empty")
+    .max(1000, "Message must be 1000 characters or less"),
   currentDate: z.iso.date(),
   clarifications: z
     .array(
       z.object({
-        question: z.string().trim(),
-        answer: z.string().trim(),
-      })
+        question: z.string().trim().min(1, "Question cannot be empty"),
+        answer: z.string().trim().min(1, "Answer cannot be empty"),
+      }),
     )
-    .optional()
-    .max(3),
+    .max(3, "Maximum 3 clarifications allowed")
+    .optional(),
 });

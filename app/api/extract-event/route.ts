@@ -1,5 +1,8 @@
 import { extractFarmEvent } from "@/src/application/extract-farm-event";
-import { farmInteractionResultSchema, farmRequestSchema } from "@/src/domain/farm-event";
+import {
+  farmInteractionResultSchema,
+  farmRequestSchema,
+} from "@/src/domain/farm-event";
 
 function isWithinOneDay(clientDate: string, serverDate: string): boolean {
   const client = new Date(clientDate);
@@ -32,7 +35,9 @@ export async function POST(request: Request): Promise<Response> {
     const serverDate = new Date().toISOString().slice(0, 10);
     if (!isWithinOneDay(currentDate, serverDate)) {
       return Response.json(
-        { error: "The date you provided is more than one day away from today." },
+        {
+          error: "The date you provided is more than one day away from today.",
+        },
         { status: 400 },
       );
     }
@@ -64,18 +69,17 @@ export async function POST(request: Request): Promise<Response> {
     }
 
     // Validation and model failures return 502 without leaking internal text
-    if (errorMessage.includes("FarmMind returned invalid data")
-      || errorMessage.includes("Nebius returned")
-      || errorMessage.includes("clarificationQuestion")) {
+    if (
+      errorMessage.includes("FarmMind returned invalid data") ||
+      errorMessage.includes("Nebius returned") ||
+      errorMessage.includes("clarificationQuestion")
+    ) {
       return Response.json(
         { error: "FarmMind could not process that message. Please try again." },
         { status: 502 },
       );
     }
 
-    return Response.json(
-      { error: errorMessage },
-      { status: 502 },
-    );
+    return Response.json({ error: errorMessage }, { status: 502 });
   }
 }
