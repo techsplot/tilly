@@ -111,7 +111,7 @@ export default function HomePage() {
   async function submitNote(
     nextClarifications: Array<{ question: string; answer: string }>,
     requestDate = currentDate ?? getLocalDateString(),
-  ) {
+  ): Promise<boolean> {
     setIsLoading(true);
     setError(null);
 
@@ -142,6 +142,7 @@ export default function HomePage() {
 
       setResult(parsed.data);
       setClarificationAnswer("");
+      return true;
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -151,6 +152,7 @@ export default function HomePage() {
     } finally {
       setIsLoading(false);
     }
+    return false;
   }
 
   async function handleClarificationSubmit(event: FormEvent<HTMLFormElement>) {
@@ -165,9 +167,11 @@ export default function HomePage() {
         answer: clarificationAnswer.trim(),
       },
     ];
-    setClarifications(nextClarifications);
-    setClarificationAnswer("");
-    await submitNote(nextClarifications);
+    const succeeded = await submitNote(nextClarifications);
+    if (succeeded) {
+      setClarifications(nextClarifications);
+      setClarificationAnswer("");
+    }
   }
 
   function startEdit(index: number) {
@@ -202,16 +206,23 @@ export default function HomePage() {
     const eventToEdit = result.events[editingIndex]!;
     try {
       const updatedEvent = correctEvent(eventToEdit, editDraft);
-      setResult((prev) =>
-        prev
-          ? {
-              ...prev,
-              events: prev.events.map((e, i) =>
-                i === editingIndex ? updatedEvent : e,
-              ),
-            }
-          : null,
-      );
+      setResult((prev) => {
+        if (!prev) return null;
+        const events = prev.events.map((e, i) =>
+          i === editingIndex ? updatedEvent : e,
+        );
+        const hasMissingFields = events.some(
+          (farmEvent) => farmEvent.missingFields.length > 0,
+        );
+        return {
+          ...prev,
+          events,
+          clarificationRequired: hasMissingFields,
+          clarificationQuestion: hasMissingFields
+            ? prev.clarificationQuestion
+            : null,
+        };
+      });
     } catch (err) {
       console.error("Failed to save edit", err);
       setError("Please check the date and required details.");
@@ -414,8 +425,16 @@ export default function HomePage() {
           <div className="result-heading">
             <span className="icon-circle">✓</span>
             <div>
-              <p className="eyebrow">FARMMIND UNDERSTOOD</p>
-              <h2>Here is what I heard</h2>
+              <p className="eyebrow">
+                {result.events.some((event) => event.missingFields.length > 0)
+                  ? "FARMMIND NEEDS ONE MORE DETAIL"
+                  : "FARMMIND UNDERSTOOD"}
+              </p>
+              <h2>
+                {result.events.some((event) => event.missingFields.length > 0)
+                  ? "Here is what I heard so far"
+                  : "Here is what I heard"}
+              </h2>
             </div>
           </div>
 
