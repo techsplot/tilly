@@ -391,4 +391,125 @@ describe("farm event lifecycle schema", () => {
 
     expect(result.success).toBe(true);
   });
+
+  it("correctEvent completes an event and sets status to corrected", () => {
+    const { correctEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: "maize",
+      field: null,
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["field"],
+      sourceText: "I planted maize.",
+    };
+
+    const result = correctEvent(event, { field: "Back Field" });
+    expect(result.status).toBe("corrected");
+    expect(result.field).toBe("Back Field");
+    expect(result.missingFields).toEqual([]);
+  });
+
+  it("correctEvent leaves a gap and stays incomplete", () => {
+    const { correctEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["eventDate"],
+      sourceText: "I planted maize.",
+    };
+
+    const result = correctEvent(event, { eventDate: "2026-10-06" });
+    expect(result.status).toBe("incomplete");
+    expect(result.missingFields).toEqual(["eventDate"]);
+  });
+
+  it("confirmEvent from proposed with no missing fields succeeds", () => {
+    const { confirmEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "proposed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    };
+
+    const result = confirmEvent(event);
+    expect(result.status).toBe("confirmed");
+  });
+
+  it("confirmEvent from incomplete is refused", () => {
+    const { confirmEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: null,
+      field: null,
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["crop", "field", "eventDate"],
+      sourceText: "I planted maize.",
+    };
+
+    let threw = false;
+    try {
+      confirmEvent(event);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
+
+  it("rejectEvent works from any non-confirmed status", () => {
+    const { rejectEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "proposed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    };
+
+    const result = rejectEvent(event);
+    expect(result.status).toBe("rejected");
+  });
+
+  it("a confirmed event cannot be rejected", () => {
+    const { rejectEvent } = require("../src/domain/farm-event");
+    const event = {
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "confirmed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    };
+
+    let threw = false;
+    try {
+      rejectEvent(event);
+    } catch {
+      threw = true;
+    }
+    expect(threw).toBe(true);
+  });
 });

@@ -40,9 +40,15 @@ export const farmInteractionSchema = z.object({
   clarificationQuestion: z.string().nullable(),
 });
 
-export type FarmEventCandidate = z.infer<typeof farmEventCandidateSchema>;
-export type FarmEvent = z.infer<typeof farmEventSchema>;
-export type FarmInteraction = z.infer<typeof farmInteractionSchema>;
+// Reject clarificationRequired=true with null/blank clarificationQuestion
+farmInteractionSchema.refine(
+  (data) => {
+    if (data.clarificationRequired && data.clarificationQuestion === null) return false;
+    if (data.clarificationRequired && data.clarificationQuestion?.trim() === "") return false;
+    return true;
+  },
+  { message: "clarificationQuestion is required when clarificationRequired is true" }
+);
 
 export const farmInteractionResultSchema = z.object({
   events: z.array(farmEventSchema),
@@ -50,4 +56,91 @@ export const farmInteractionResultSchema = z.object({
   clarificationQuestion: z.string().nullable(),
 });
 
+// Reject clarificationRequired=true with null/blank clarificationQuestion
+farmInteractionResultSchema.refine(
+  (data) => {
+    if (data.clarificationRequired && data.clarificationQuestion === null) return false;
+    if (data.clarificationRequired && data.clarificationQuestion?.trim() === "") return false;
+    return true;
+  },
+  { message: "clarificationQuestion is required when clarificationRequired is true" }
+});
+
+// Required-field policy by activity (used by domain functions)
+const requiredFieldsByActivity: Record<
+  FarmInteraction["events"][number]["activity"],
+  Array<"crop" | "field" | "eventDate">
+> = {
+  planting: ["crop", "field", "eventDate"],
+  fertilizing: ["crop", "field", "eventDate"],
+  weeding: ["crop", "field", "eventDate"],
+  spraying: ["crop", "field", "eventDate"],
+  harvesting: ["crop", "field", "eventDate"],
+  inspection: ["field", "eventDate"],
+  irrigation: ["field", "eventDate"],
+  other: ["eventDate"],
+};
+
+// Apply the required-field policy to compute missingFields and status
+function computeMissingFieldsAndStatus(
+  event: FarmEvent
+): { missingFields: string[]; status: FarmEvent["status"] } {
+  const activity = event.activity;
+  const required = requiredFieldsByActivity[activity];
+  if (!required) {
+    return { missingFields: [], status: event.status };
+  }
+  const missing = required.filter((field) => !event[field as keyof FarmEvent]);
+  const status = missing.length > 0 ? "incomplete" : "proposed";
+  return { missingFields: missing, status };
+}
+
+// Correct an event with the given changes; validates and recomputes missingFields
+export function correctEvent(
+  event: FarmEvent,
+  changes: Partial<FarmEvent>
+): FarmEvent {
+  const updated = { ...event, ...changes } as FarmEvent;
+  const { missingFields, status } = computeMissingFieldsAndStatus(updated);
+  return { ...updated, missingFields, status };
+}
+
+// Confirm an event; only allowed from proposed or corrected with no missing fields
+export function confirmEvent(event: FarmEvent): FarmEvent {
+  if (event.status !== "proposed" && event.status !== "corrected") {
+    throw new Error("confirmEvent: only allowed from proposed or corrected status");
+  }
+  if (event.missingFields.length > 0) {
+    throw new Error("confirmEvent: event has missing fields");
+  }
+  return { ...event, status: "confirmed" };
+}
+
+// Reject an event; allowed from any non-confirmed status
+export function rejectEvent(event: FarmEvent): FarmEvent {
+  if (event.status === "confirmed") {
+    throw new Error("rejectEvent: cannot reject a confirmed event");
+  }
+  return { ...event, status: "rejected" };
+}
+
+export type FarmEventCandidate = z.infer<typeof farmEventCandidateSchema>;
+export type FarmEvent = z.infer<typeof farmEventSchema>;
+export type FarmInteraction = z.infer<typeof farmInteractionSchema>;
 export type FarmInteractionResult = z.infer<typeof farmInteractionResultSchema>;
+
+export type FarmRequest = z.infer<typeof farmRequestSchema>;
+
+export const farmRequestSchema = z.object({
+  message: z.string().trim().min(1).max(1000),
+  currentDate: z.iso.date(),
+  clarifications: z
+    .array(
+      z.object({
+        question: z.string().trim(),
+        answer: z.string().trim(),
+      })
+    )
+    .optional()
+    .max(3),
+});

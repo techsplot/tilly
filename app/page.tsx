@@ -1,16 +1,13 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { farmInteractionResultSchema } from "@/src/application/farm-response-schema";
+import {
+  FarmEvent,
+  FarmInteractionResult,
+  farmInteractionResultSchema,
+} from "@/src/domain/farm-event";
 
-type FarmEvent = {
-  activity: string;
-  crop: string | null;
-  field: string | null;
-  eventDate: string | null;
-  status: "proposed" | "incomplete" | "confirmed" | "corrected" | "rejected";
-  missingFields: string[];
-};
+type FarmInteractionResult = FarmInteractionResult;
 
 export default function HomePage() {
   const [message, setMessage] = useState("");
@@ -18,8 +15,9 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [clarificationAnswer, setClarificationAnswer] = useState("");
-  const [isEditing, setIsEditing] = useState(false);
-  const [editingIndex, setEditingIndex] = useState(-1);
+  const [clarifications, setClarifications] = useState<
+    Array<{ question: string; answer: string }>
+  >([]);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -31,7 +29,11 @@ export default function HomePage() {
     try {
       const payload =
         result && result.clarificationRequired && clarificationAnswer.trim()
-          ? { message, clarificationAnswer }
+          ? {
+              message,
+              clarificationAnswer,
+              clarifications: [...clarifications, { question: result.clarificationQuestion!, answer: clarificationAnswer }],
+            }
           : { message };
 
       const response = await fetch("/api/extract-event", {
@@ -39,12 +41,15 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-      const body = await response.json();
 
       if (!response.ok) {
-        throw new Error("FarmMind could not process that message.");
+        const body = await response.json();
+        const errorMessage =
+          typeof body.error === "string" ? body.error : "FarmMind could not process that message.";
+        throw new Error(errorMessage);
       }
 
+      const body = await response.json();
       const parsed = farmInteractionResultSchema.safeParse(body);
       if (!parsed.success) {
         throw new Error("FarmMind returned invalid data.");
@@ -52,11 +57,14 @@ export default function HomePage() {
 
       setResult(parsed.data as FarmInteractionResult);
       setClarificationAnswer("");
+      setClarifications(
+        result?.clarificationRequired && clarifications.length < 3
+          ? [...clarifications, { question: result.clarificationQuestion!, answer: "" }]
+          : clarifications
+      );
     } catch (caughtError) {
       setError(
-        caughtError instanceof Error
-          ? caughtError.message
-          : "Something went wrong. Please try again.",
+        caughtError instanceof Error ? caughtError.message : "Something went wrong. Please try again.",
       );
     } finally {
       setIsLoading(false);
@@ -345,7 +353,7 @@ export default function HomePage() {
       <footer>
         <span>Private by design</span>
         <span>•</span>
-        <span>Nothing is saved until you confirm</span>
+        <span>Records are not saved yet in this preview.</span>
       </footer>
     </main>
   );

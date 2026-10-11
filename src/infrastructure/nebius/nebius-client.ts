@@ -11,7 +11,7 @@ export function createNebiusClient(): OpenAI {
     );
   }
 
-  return new OpenAI({ apiKey, baseURL });
+  return new OpenAI({ apiKey, baseURL, timeout: 30000, maxRetries: 1 });
 }
 
 export function getNebiusModel(): string {
