@@ -97,9 +97,9 @@ export async function extractFarmEvent(
   if (clarifications && clarifications.length > 0) {
     const qaPairs = clarifications
       .slice(0, 3) // limit to 3 clarifications
-      .map((c) => `Q: ${c.question} A: ${c.answer}`)
-      .join(" ");
-    sourceText = `${farmerMessage} ${qaPairs}`;
+      .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
+      .join("\n");
+    sourceText = `${farmerMessage}\n${qaPairs}`;
   }
 
   const response = await client.chat.completions.create({
