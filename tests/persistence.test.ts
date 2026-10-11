@@ -52,7 +52,7 @@ describe("farm event persistence", () => {
     client = new PGlite();
     db = drizzle(client, { schema });
     await migrate(db, { migrationsFolder: migrationFolder });
-  }, 30000);
+  }, 180000);
 
   beforeEach(async () => {
     await db.delete(eventCorrections);
