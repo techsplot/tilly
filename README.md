@@ -31,12 +31,13 @@ Working today:
   understood, including missing fields and clarification questions;
 - the `/api/extract-event` route and the `pnpm extract-event` command, both
   making live Nemotron calls.
+- clarification answers, local event correction, confirmation/rejection
+  transitions, and honest loading/error states. Confirmed records remain local
+  preview state until Phase 3 persistence.
 
-Not built yet: answering a clarification, editing, confirming and saving
-records, the farm timeline, reminders, evaluation results, and a hosted demo.
-The **Confirm record** and **Edit details** buttons are placeholders and save
-nothing. The [implementation plan](.github/implementation-plan.md) tracks
-progress phase by phase.
+Not built yet: saving records, the farm timeline, reminders, evaluation
+results, and a hosted demo. The [implementation plan](.github/implementation-plan.md)
+tracks progress phase by phase.
 
 ## Prerequisites
 

@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import {
   farmInteractionSchema,
+  getMissingFields,
   type FarmEvent,
   type FarmInteraction,
   type FarmInteractionResult,
@@ -38,35 +39,17 @@ Never invent a crop, field, date, quantity, or unit. If the message is too
 ambiguous to record safely, return no event and ask one concise question.
 If the useful facts are clear but an optional detail is missing, return the
 event with that field set to null and do not ask a question.
-`;
 
-const requiredFieldsByActivity: Record<
-  FarmInteraction["events"][number]["activity"],
-  Array<"crop" | "field" | "eventDate">
-> = {
-  planting: ["crop", "field", "eventDate"],
-  fertilizing: ["crop", "field", "eventDate"],
-  weeding: ["crop", "field", "eventDate"],
-  spraying: ["crop", "field", "eventDate"],
-  harvesting: ["crop", "field", "eventDate"],
-  inspection: ["field", "eventDate"],
-  irrigation: ["field", "eventDate"],
-  other: ["eventDate"],
-};
+Clarifications are the farmer's answers and take precedence over the original
+message. If an answer provides a value for a missing field, fill that field.
+`;
 
 function applyInteractionPolicy(
   interaction: FarmInteraction,
   sourceText: string,
 ): FarmInteractionResult {
   const events: FarmEvent[] = interaction.events.map((event) => {
-    const requiredFields = requiredFieldsByActivity[event.activity];
-    if (!requiredFields) {
-      throw new Error(
-        `No required-field policy exists for activity "${event.activity}".`,
-      );
-    }
-
-    const missingFields = requiredFields.filter((field) => !event[field]);
+    const missingFields = getMissingFields(event);
 
     return {
       ...event,
@@ -95,8 +78,20 @@ function applyInteractionPolicy(
 export async function extractFarmEvent(
   farmerMessage: string,
   currentDate: string,
+  clarifications?: { question: string; answer: string }[],
 ): Promise<FarmInteractionResult> {
   const client = createNebiusClient();
+
+  // Build sourceText with provenance: original message + Q/A pairs
+  let sourceText = farmerMessage;
+  if (clarifications && clarifications.length > 0) {
+    const qaPairs = clarifications
+      .slice(0, 3) // limit to 3 clarifications
+      .map((c) => `Q: ${c.question}\nA: ${c.answer}`)
+      .join("\n");
+    sourceText = `${farmerMessage}\n${qaPairs}`;
+  }
+
   const response = await client.chat.completions.create({
     model: getNebiusModel(),
     temperature: 0,
@@ -105,7 +100,7 @@ export async function extractFarmEvent(
       { role: "system", content: extractionInstructions },
       {
         role: "user",
-        content: JSON.stringify({ currentDate, farmerMessage }),
+        content: JSON.stringify({ currentDate, farmerMessage, clarifications }),
       },
     ],
   });
@@ -129,7 +124,7 @@ export async function extractFarmEvent(
     );
   }
 
-  return applyInteractionPolicy(result.data, farmerMessage);
+  return applyInteractionPolicy(result.data, sourceText);
 }
 
 const isDirectExecution =

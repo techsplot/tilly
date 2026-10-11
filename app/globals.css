@@ -22,7 +22,8 @@ body {
 }
 
 button,
-textarea {
+textarea,
+input {
   font: inherit;
 }
 
@@ -133,6 +134,49 @@ textarea {
   padding: 16px;
   resize: vertical;
   width: 100%;
+}
+
+input {
+  background: #fbfcf9;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--ink);
+  padding: 10px;
+  width: 100%;
+}
+
+.working-card,
+.clarification-card {
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  box-shadow: 0 12px 35px rgba(42, 74, 51, 0.06);
+  margin-top: 18px;
+  padding: 22px 26px;
+}
+
+.clarification-question {
+  font-size: 18px;
+  line-height: 1.5;
+}
+
+.edit-form {
+  display: grid;
+  gap: 14px;
+  grid-template-columns: repeat(2, 1fr);
+  margin-top: 18px;
+}
+
+.edit-form label {
+  display: block;
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.edit-form .form-footer {
+  grid-column: 1 / -1;
+  justify-content: flex-end;
 }
 
 textarea:focus {
@@ -303,6 +347,10 @@ footer {
   }
 
   .event-details {
+    grid-template-columns: 1fr;
+  }
+
+  .edit-form {
     grid-template-columns: 1fr;
   }
 }

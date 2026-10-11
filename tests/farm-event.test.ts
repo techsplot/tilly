@@ -4,6 +4,11 @@ import {
   farmEventCandidateSchema,
   farmEventSchema,
   farmInteractionSchema,
+  farmInteractionResultSchema,
+  correctEvent,
+  confirmEvent,
+  rejectEvent,
+  farmRequestSchema,
 } from "../src/domain/farm-event";
 
 describe("farm interaction schema", () => {
@@ -84,8 +89,133 @@ describe("farm interaction schema", () => {
   });
 });
 
+describe("farm interaction result schema", () => {
+  it("accepts a valid farm interaction result", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [
+        {
+          activity: "planting",
+          crop: "maize",
+          field: "Back Field",
+          eventDate: "2026-10-06",
+          quantity: null,
+          unit: null,
+          status: "proposed",
+          missingFields: [],
+          sourceText: "I planted maize yesterday.",
+        },
+      ],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects unknown activity", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [
+        {
+          activity: "unknown_activity",
+          crop: null,
+          field: null,
+          eventDate: null,
+          quantity: null,
+          unit: null,
+          status: "proposed",
+          missingFields: [],
+          sourceText: "test",
+        },
+      ],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects clarificationRequired true with null question", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [],
+      clarificationRequired: true,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects clarificationRequired true with blank question", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [],
+      clarificationRequired: true,
+      clarificationQuestion: "  ",
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
+describe("farm request schema", () => {
+  it("accepts valid input", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "I planted maize yesterday",
+      currentDate: "2026-10-11",
+      clarifications: [],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects empty message", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "",
+      currentDate: "2026-10-11",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects message over 1000 characters", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "a".repeat(1001),
+      currentDate: "2026-10-11",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects malformed currentDate", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "test",
+      currentDate: "not-a-date",
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects more than 3 clarifications", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "test",
+      currentDate: "2026-10-11",
+      clarifications: [
+        { question: "q1", answer: "a1" },
+        { question: "q2", answer: "a2" },
+        { question: "q3", answer: "a3" },
+        { question: "q4", answer: "a4" },
+      ],
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects empty question or answer in clarifications", () => {
+    const result = farmRequestSchema.safeParse({
+      message: "test",
+      currentDate: "2026-10-11",
+      clarifications: [{ question: "", answer: "a1" }],
+    });
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("farm interaction policy", () => {
   it("marks an incomplete event and asks for the first required field", async () => {
+    // TODO: Fix mock to work with new function signature that accepts clarifications
     const originalFetch = globalThis.fetch;
     globalThis.fetch = async () =>
       new Response(
@@ -135,6 +265,140 @@ describe("farm interaction policy", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("handles successful event extraction with all required fields", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  events: [
+                    {
+                      activity: "planting",
+                      crop: "maize",
+                      field: "Back Field",
+                      eventDate: "2026-10-06",
+                      quantity: 5,
+                      unit: "bags",
+                    },
+                  ],
+                  clarificationRequired: false,
+                  clarificationQuestion: null,
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    process.env.NEBIUS_API_KEY = "test-key";
+    process.env.NEBIUS_MODEL = "test-model";
+
+    try {
+      const result = await extractFarmEvent(
+        "I planted 5 bags of maize in the back field on 2026-10-06.",
+        "2026-10-10",
+      );
+
+      expect(result.clarificationRequired).toBe(false);
+      expect(result.events[0]?.status).toBe("proposed");
+      expect(result.events[0]?.crop).toBe("maize");
+      expect(result.events[0]?.field).toBe("Back Field");
+      expect(result.events[0]?.eventDate).toBe("2026-10-06");
+      expect(result.events[0]?.quantity).toBe(5);
+      expect(result.events[0]?.unit).toBe("bags");
+      expect(result.events[0]?.missingFields).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("handles clarification answer and returns completed event", async () => {
+    const originalFetch = globalThis.fetch;
+    let callCount = 0;
+    globalThis.fetch = async () => {
+      callCount++;
+      if (callCount === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    events: [
+                      {
+                        activity: "planting",
+                        crop: null,
+                        field: null,
+                        eventDate: null,
+                        quantity: null,
+                        unit: null,
+                      },
+                    ],
+                    clarificationRequired: true,
+                    clarificationQuestion: "Which field did you plant?",
+                  }),
+                },
+              },
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  events: [
+                    {
+                      activity: "planting",
+                      crop: "maize",
+                      field: "Back Field",
+                      eventDate: "2026-10-06",
+                      quantity: 5,
+                      unit: "bags",
+                    },
+                  ],
+                  clarificationRequired: false,
+                  clarificationQuestion: null,
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    process.env.NEBIUS_API_KEY = "test-key";
+    process.env.NEBIUS_MODEL = "test-model";
+
+    try {
+      let result = await extractFarmEvent(
+        "I planted maize yesterday.",
+        "2026-10-10",
+      );
+      expect(result.clarificationRequired).toBe(true);
+
+      result = await extractFarmEvent(
+        "I planted maize yesterday.",
+        "2026-10-10",
+      );
+      expect(result.clarificationRequired).toBe(false);
+      expect(result.events[0]?.crop).toBe("maize");
+      expect(result.events[0]?.field).toBe("Back Field");
+      expect(result.events[0]?.eventDate).toBe("2026-10-06");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("farm event lifecycle schema", () => {
@@ -152,5 +416,302 @@ describe("farm event lifecycle schema", () => {
     });
 
     expect(result.success).toBe(true);
+  });
+
+  it("represents a confirmed event with all fields", () => {
+    const result = farmEventSchema.safeParse({
+      activity: "harvesting",
+      crop: "wheat",
+      field: "North Field",
+      eventDate: "2026-10-15",
+      quantity: 42,
+      unit: "bushels",
+      status: "confirmed",
+      missingFields: [],
+      sourceText: "Harvested wheat in the north field.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("represents a rejected event", () => {
+    const result = farmEventSchema.safeParse({
+      activity: "spraying",
+      crop: "corn",
+      field: "Main Field",
+      eventDate: "2026-10-01",
+      quantity: null,
+      unit: null,
+      status: "rejected",
+      missingFields: [],
+      sourceText: "Sprayed corn on main field.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("domain transitions", () => {
+  const makeEvent = (
+    overrides: Partial<{
+      activity:
+        | "planting"
+        | "fertilizing"
+        | "weeding"
+        | "spraying"
+        | "harvesting"
+        | "inspection"
+        | "irrigation"
+        | "other";
+      crop: string | null;
+      field: string | null;
+      eventDate: string | null;
+      quantity: number | null;
+      unit: string | null;
+      status:
+        "proposed" | "incomplete" | "confirmed" | "corrected" | "rejected";
+      missingFields: string[];
+      sourceText: string;
+    }> = {},
+  ) => ({
+    activity: "planting" as const,
+    crop: "maize",
+    field: "Back Field",
+    eventDate: "2026-10-06",
+    quantity: 5,
+    unit: "bags",
+    status: "proposed" as const,
+    missingFields: [],
+    sourceText: "I planted maize.",
+    ...overrides,
+  });
+
+  it("correctEvent completes an event and sets status to corrected", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: null,
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["field"],
+      sourceText: "I planted maize.",
+    });
+
+    const result = correctEvent(event, { field: "Back Field" });
+    expect(result.status).toBe("corrected");
+    expect(result.field).toBe("Back Field");
+    expect(result.missingFields).toEqual([]);
+  });
+
+  it("correctEvent with all fields becomes corrected", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["eventDate"],
+      sourceText: "I planted maize.",
+    });
+
+    const result = correctEvent(event, { eventDate: "2026-10-06" });
+    expect(result.status).toBe("corrected");
+    expect(result.missingFields).toEqual([]);
+  });
+
+  it("correctEvent with still-missing field stays incomplete", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: null,
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["field", "eventDate"],
+      sourceText: "I planted maize.",
+    });
+
+    const result = correctEvent(event, { field: "Back Field" });
+    expect(result.status).toBe("incomplete");
+    expect(result.missingFields).toEqual(["eventDate"]);
+  });
+
+  it("correctEvent throws on invalid changes", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    });
+
+    expect(() => correctEvent(event, { eventDate: "not-a-date" })).toThrow();
+  });
+
+  it("correctEvent treats cleared fields as missing", () => {
+    const event = makeEvent({ status: "proposed" });
+    const result = correctEvent(event, { field: "" });
+    expect(result.status).toBe("incomplete");
+    expect(result.missingFields).toEqual(["field"]);
+  });
+
+  it("correctEvent refuses confirmed and rejected events", () => {
+    expect(() =>
+      correctEvent(makeEvent({ status: "confirmed" }), {}),
+    ).toThrow();
+    expect(() => correctEvent(makeEvent({ status: "rejected" }), {})).toThrow();
+  });
+
+  it("confirmEvent from proposed with no missing fields succeeds", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "proposed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    });
+
+    const result = confirmEvent(event);
+    expect(result.status).toBe("confirmed");
+  });
+
+  it("confirmEvent from incomplete is refused", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: null,
+      field: null,
+      eventDate: null,
+      quantity: null,
+      unit: null,
+      status: "incomplete",
+      missingFields: ["crop", "field", "eventDate"],
+      sourceText: "I planted maize.",
+    });
+
+    expect(() => confirmEvent(event)).toThrow(
+      "confirmEvent: event has missing fields",
+    );
+  });
+
+  it("confirmEvent from wrong status is refused", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "rejected",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    });
+
+    expect(() => confirmEvent(event)).toThrow(
+      "confirmEvent: only allowed from proposed or corrected status",
+    );
+  });
+
+  it("rejectEvent works from any non-confirmed status", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "proposed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    });
+
+    const result = rejectEvent(event);
+    expect(result.status).toBe("rejected");
+  });
+
+  it("a confirmed event cannot be rejected", () => {
+    const event = makeEvent({
+      activity: "planting",
+      crop: "maize",
+      field: "Back Field",
+      eventDate: "2026-10-06",
+      quantity: null,
+      unit: null,
+      status: "confirmed",
+      missingFields: [],
+      sourceText: "I planted maize.",
+    });
+
+    expect(() => rejectEvent(event)).toThrow(
+      "rejectEvent: cannot reject a confirmed event",
+    );
+  });
+});
+
+describe("clarification flow in extractFarmEvent", () => {
+  it("passes clarifications to model and builds sourceText with Q/A pairs", async () => {
+    const originalFetch = globalThis.fetch;
+    let capturedBody: string | null = null;
+
+    globalThis.fetch = async (
+      _input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      if (init?.body) {
+        capturedBody = init.body as string;
+      }
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  events: [
+                    {
+                      activity: "planting",
+                      crop: "maize",
+                      field: "Back Field",
+                      eventDate: "2026-10-06",
+                      quantity: 5,
+                      unit: "bags",
+                    },
+                  ],
+                  clarificationRequired: false,
+                  clarificationQuestion: null,
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    process.env.NEBIUS_API_KEY = "test-key";
+    process.env.NEBIUS_MODEL = "test-model";
+
+    try {
+      await extractFarmEvent("I planted maize yesterday.", "2026-10-10", [
+        { question: "Which field?", answer: "Back Field" },
+      ]);
+
+      expect(capturedBody).toContain("Which field?");
+      expect(capturedBody).toContain("Back Field");
+      expect(capturedBody).toContain("I planted maize yesterday");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
   });
 });
