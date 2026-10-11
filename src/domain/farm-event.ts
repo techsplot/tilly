@@ -95,22 +95,27 @@ export const requiredFieldsByActivity: Record<
   other: ["eventDate"],
 };
 
+export function getMissingFields(
+  event: Pick<FarmEvent, "activity" | "crop" | "field" | "eventDate">,
+): Array<"crop" | "field" | "eventDate"> {
+  const required = requiredFieldsByActivity[event.activity];
+  if (!required) {
+    throw new Error(
+      `No required-field policy exists for activity "${event.activity}".`,
+    );
+  }
+  return required.filter((field) => {
+    const value = event[field];
+    return value === null || value === undefined || value === "";
+  });
+}
+
 // Apply the required-field policy to compute missingFields and status
 function computeMissingFieldsAndStatus(event: FarmEvent): {
   missingFields: string[];
   status: FarmEvent["status"];
 } {
-  const activity = event.activity;
-  const required = requiredFieldsByActivity[activity];
-  if (!required) {
-    throw new Error(
-      `No required-field policy exists for activity "${activity}".`,
-    );
-  }
-  const missing = required.filter((field) => {
-    const value = event[field];
-    return value === null || value === undefined || value === "";
-  });
+  const missing = getMissingFields(event);
   const status = missing.length > 0 ? "incomplete" : "proposed";
   return { missingFields: missing, status };
 }
@@ -186,7 +191,7 @@ export const farmRequestSchema = z.object({
     .trim()
     .min(1, "Message cannot be empty")
     .max(1000, "Message must be 1000 characters or less"),
-  currentDate: z.iso.date(),
+  currentDate: z.iso.date("A date in YYYY-MM-DD format is required"),
   clarifications: z
     .array(
       z.object({

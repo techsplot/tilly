@@ -3,7 +3,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import {
   farmInteractionSchema,
-  requiredFieldsByActivity,
+  getMissingFields,
   type FarmEvent,
   type FarmInteraction,
   type FarmInteractionResult,
@@ -49,17 +49,7 @@ function applyInteractionPolicy(
   sourceText: string,
 ): FarmInteractionResult {
   const events: FarmEvent[] = interaction.events.map((event) => {
-    const requiredFields = requiredFieldsByActivity[event.activity];
-    if (!requiredFields) {
-      throw new Error(
-        `No required-field policy exists for activity "${event.activity}".`,
-      );
-    }
-
-    const missingFields = requiredFields.filter((field) => {
-      const value = event[field];
-      return value === null || value === undefined || value === "";
-    });
+    const missingFields = getMissingFields(event);
 
     return {
       ...event,
