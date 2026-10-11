@@ -131,7 +131,7 @@ export function correctEvent(
     unit?: string | null;
   },
 ): FarmEvent {
-  if (event.status === "confirmed" || event.status === "rejected") {
+  if (event.status === "rejected") {
     throw new Error(`correctEvent: cannot edit a ${event.status} event`);
   }
   const normalizedChanges = Object.fromEntries(
@@ -175,7 +175,12 @@ export function rejectEvent(event: FarmEvent): FarmEvent {
   if (event.status === "confirmed") {
     throw new Error("rejectEvent: cannot reject a confirmed event");
   }
+
   return { ...event, status: "rejected" };
+}
+
+export function isActionable(event: FarmEvent): boolean {
+  return event.status === "confirmed" || event.status === "corrected";
 }
 
 export type FarmEventCandidate = z.infer<typeof farmEventCandidateSchema>;

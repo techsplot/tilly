@@ -9,6 +9,7 @@ import {
   confirmEvent,
   rejectEvent,
   farmRequestSchema,
+  isActionable,
 } from "../src/domain/farm-event";
 
 describe("farm interaction schema", () => {
@@ -564,11 +565,19 @@ describe("domain transitions", () => {
     expect(result.missingFields).toEqual(["field"]);
   });
 
-  it("correctEvent refuses confirmed and rejected events", () => {
-    expect(() =>
-      correctEvent(makeEvent({ status: "confirmed" }), {}),
-    ).toThrow();
+  it("correctEvent allows confirmed and refuses rejected events", () => {
+    expect(correctEvent(makeEvent({ status: "confirmed" }), {}).status).toBe(
+      "corrected",
+    );
     expect(() => correctEvent(makeEvent({ status: "rejected" }), {})).toThrow();
+  });
+
+  it("isActionable is true only for confirmed and corrected events", () => {
+    expect(isActionable(makeEvent({ status: "confirmed" }))).toBe(true);
+    expect(isActionable(makeEvent({ status: "corrected" }))).toBe(true);
+    expect(isActionable(makeEvent({ status: "proposed" }))).toBe(false);
+    expect(isActionable(makeEvent({ status: "incomplete" }))).toBe(false);
+    expect(isActionable(makeEvent({ status: "rejected" }))).toBe(false);
   });
 
   it("confirmEvent from proposed with no missing fields succeeds", () => {
