@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import {
   farmInteractionSchema,
+  requiredFieldsByActivity,
   type FarmEvent,
   type FarmInteraction,
   type FarmInteractionResult,
@@ -39,26 +40,9 @@ ambiguous to record safely, return no event and ask one concise question.
 If the useful facts are clear but an optional detail is missing, return the
 event with that field set to null and do not ask a question.
 
-When the farmer provides clarification answers, include them in the sourceText
-as "Q: {question}" / "A: {answer}" pairs appended to the original message.
-Clarification answers take precedence over the original message - if an
-answer provides a value for a missing field, that field should be filled in and
-the event should not remain incomplete for that reason.
+Clarifications are the farmer's answers and take precedence over the original
+message. If an answer provides a value for a missing field, fill that field.
 `;
-
-const requiredFieldsByActivity: Record<
-  FarmInteraction["events"][number]["activity"],
-  Array<"crop" | "field" | "eventDate">
-> = {
-  planting: ["crop", "field", "eventDate"],
-  fertilizing: ["crop", "field", "eventDate"],
-  weeding: ["crop", "field", "eventDate"],
-  spraying: ["crop", "field", "eventDate"],
-  harvesting: ["crop", "field", "eventDate"],
-  inspection: ["field", "eventDate"],
-  irrigation: ["field", "eventDate"],
-  other: ["eventDate"],
-};
 
 function applyInteractionPolicy(
   interaction: FarmInteraction,
@@ -72,7 +56,10 @@ function applyInteractionPolicy(
       );
     }
 
-    const missingFields = requiredFields.filter((field) => !event[field]);
+    const missingFields = requiredFields.filter((field) => {
+      const value = event[field];
+      return value === null || value === undefined || value === "";
+    });
 
     return {
       ...event,
@@ -123,7 +110,7 @@ export async function extractFarmEvent(
       { role: "system", content: extractionInstructions },
       {
         role: "user",
-        content: JSON.stringify({ currentDate, farmerMessage: sourceText }),
+        content: JSON.stringify({ currentDate, farmerMessage, clarifications }),
       },
     ],
   });
@@ -147,7 +134,7 @@ export async function extractFarmEvent(
     );
   }
 
-  return applyInteractionPolicy(result.data, farmerMessage);
+  return applyInteractionPolicy(result.data, sourceText);
 }
 
 const isDirectExecution =

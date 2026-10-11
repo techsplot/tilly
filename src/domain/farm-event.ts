@@ -81,7 +81,7 @@ export const farmInteractionResultSchema = z
   );
 
 // Required-field policy by activity (used by domain functions)
-const requiredFieldsByActivity: Record<
+export const requiredFieldsByActivity: Record<
   FarmInteraction["events"][number]["activity"],
   Array<"crop" | "field" | "eventDate">
 > = {
@@ -107,7 +107,10 @@ function computeMissingFieldsAndStatus(event: FarmEvent): {
       `No required-field policy exists for activity "${activity}".`,
     );
   }
-  const missing = required.filter((field) => !event[field as keyof FarmEvent]);
+  const missing = required.filter((field) => {
+    const value = event[field];
+    return value === null || value === undefined || value === "";
+  });
   const status = missing.length > 0 ? "incomplete" : "proposed";
   return { missingFields: missing, status };
 }
@@ -123,7 +126,16 @@ export function correctEvent(
     unit?: string | null;
   },
 ): FarmEvent {
-  const updated = { ...event, ...changes } as FarmEvent;
+  if (event.status === "confirmed" || event.status === "rejected") {
+    throw new Error(`correctEvent: cannot edit a ${event.status} event`);
+  }
+  const normalizedChanges = Object.fromEntries(
+    Object.entries(changes).map(([key, value]) => [
+      key,
+      typeof value === "string" ? value.trim() || null : value,
+    ]),
+  ) as typeof changes;
+  const updated = { ...event, ...normalizedChanges } as FarmEvent;
   const parsed = farmEventCandidateSchema.safeParse({
     activity: updated.activity,
     crop: updated.crop,
