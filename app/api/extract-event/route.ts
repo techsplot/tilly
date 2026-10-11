@@ -1,4 +1,5 @@
 import { extractFarmEvent } from "@/src/application/extract-farm-event";
+import { farmInteractionResultSchema } from "@/src/application/farm-response-schema";
 
 export async function POST(request: Request): Promise<Response> {
   try {
@@ -20,7 +21,16 @@ export async function POST(request: Request): Promise<Response> {
       body.message,
       new Date().toISOString().slice(0, 10),
     );
-    return Response.json(result);
+
+    const parsed = farmInteractionResultSchema.safeParse(result);
+    if (!parsed.success) {
+      return Response.json(
+        { error: "FarmMind returned invalid data." },
+        { status: 502 },
+      );
+    }
+
+    return Response.json(parsed.data);
   } catch (error: unknown) {
     console.error("Farm event extraction failed", error);
     return Response.json(

@@ -4,6 +4,7 @@ import {
   farmEventCandidateSchema,
   farmEventSchema,
   farmInteractionSchema,
+  farmInteractionResultSchema,
 } from "../src/domain/farm-event";
 
 describe("farm interaction schema", () => {
@@ -84,6 +85,74 @@ describe("farm interaction schema", () => {
   });
 });
 
+describe("farm interaction result schema", () => {
+  it("accepts a valid farm interaction result", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [
+        {
+          activity: "planting",
+          crop: "maize",
+          field: "Back Field",
+          eventDate: "2026-10-06",
+          quantity: null,
+          unit: null,
+          status: "proposed",
+          missingFields: [],
+          sourceText: "I planted maize yesterday.",
+        },
+      ],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid event data", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [
+        {
+          activity: "planting",
+          crop: null,
+          field: null,
+          eventDate: null,
+          quantity: null,
+          unit: null,
+          status: "proposed",
+          missingFields: [],
+          sourceText: "test",
+        },
+      ],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+
+  it("rejects unknown activity", () => {
+    const result = farmInteractionResultSchema.safeParse({
+      events: [
+        {
+          activity: "unknown_activity",
+          crop: null,
+          field: null,
+          eventDate: null,
+          quantity: null,
+          unit: null,
+          status: "proposed",
+          missingFields: [],
+          sourceText: "test",
+        },
+      ],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+
+    expect(result.success).toBe(false);
+  });
+});
+
 describe("farm interaction policy", () => {
   it("marks an incomplete event and asks for the first required field", async () => {
     const originalFetch = globalThis.fetch;
@@ -135,6 +204,143 @@ describe("farm interaction policy", () => {
       globalThis.fetch = originalFetch;
     }
   });
+
+  it("handles successful event extraction with all required fields", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  events: [
+                    {
+                      activity: "planting",
+                      crop: "maize",
+                      field: "Back Field",
+                      eventDate: "2026-10-06",
+                      quantity: 5,
+                      unit: "bags",
+                    },
+                  ],
+                  clarificationRequired: false,
+                  clarificationQuestion: null,
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+
+    process.env.NEBIUS_API_KEY = "test-key";
+    process.env.NEBIUS_MODEL = "test-model";
+
+    try {
+      const result = await extractFarmEvent(
+        "I planted 5 bags of maize in the back field on 2026-10-06.",
+        "2026-10-10",
+      );
+
+      expect(result.clarificationRequired).toBe(false);
+      expect(result.events[0]?.status).toBe("proposed");
+      expect(result.events[0]?.crop).toBe("maize");
+      expect(result.events[0]?.field).toBe("Back Field");
+      expect(result.events[0]?.eventDate).toBe("2026-10-06");
+      expect(result.events[0]?.quantity).toBe(5);
+      expect(result.events[0]?.unit).toBe("bags");
+      expect(result.events[0]?.missingFields).toEqual([]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("handles clarification answer and returns completed event", async () => {
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = async () => {
+      if (globalThis.fetch.calls === undefined) {
+        globalThis.fetch.calls = 0;
+      }
+      globalThis.fetch.calls++;
+
+      if (globalThis.fetch.calls === 1) {
+        return new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    events: [
+                      {
+                        activity: "planting",
+                        crop: null,
+                        field: null,
+                        eventDate: null,
+                        quantity: null,
+                        unit: null,
+                      },
+                    ],
+                    clarificationRequired: true,
+                    clarificationQuestion: "Which field did you plant?",
+                  }),
+                },
+              },
+            ),
+            { status: 200, headers: { "content-type": "application/json" } },
+          )
+        );
+      }
+
+      return new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  events: [
+                    {
+                      activity: "planting",
+                      crop: "maize",
+                      field: "Back Field",
+                      eventDate: "2026-10-06",
+                      quantity: 5,
+                      unit: "bags",
+                    },
+                  ],
+                  clarificationRequired: false,
+                  clarificationQuestion: null,
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    process.env.NEBIUS_API_KEY = "test-key";
+    process.env.NEBIUS_MODEL = "test-model";
+
+    try {
+      let result = await extractFarmEvent(
+        "I planted maize yesterday.",
+        "2026-10-10",
+      );
+      expect(result.clarificationRequired).toBe(true);
+
+      result = await extractFarmEvent(
+        "I planted maize yesterday.",
+        "2026-10-10",
+      );
+      expect(result.clarificationRequired).toBe(false);
+      expect(result.events[0]?.crop).toBe("maize");
+      expect(result.events[0]?.field).toBe("Back Field");
+      expect(result.events[0]?.eventDate).toBe("2026-10-06");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
 });
 
 describe("farm event lifecycle schema", () => {
@@ -149,6 +355,38 @@ describe("farm event lifecycle schema", () => {
       status: "incomplete",
       missingFields: ["field"],
       sourceText: "I planted maize yesterday.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("represents a confirmed event with all fields", () => {
+    const result = farmEventSchema.safeParse({
+      activity: "harvesting",
+      crop: "wheat",
+      field: "North Field",
+      eventDate: "2026-10-15",
+      quantity: 42,
+      unit: "bushels",
+      status: "confirmed",
+      missingFields: [],
+      sourceText: "Harvested wheat in the north field.",
+    });
+
+    expect(result.success).toBe(true);
+  });
+
+  it("represents a rejected event", () => {
+    const result = farmEventSchema.safeParse({
+      activity: "spraying",
+      crop: "corn",
+      field: "Main Field",
+      eventDate: "2026-10-01",
+      quantity: null,
+      unit: null,
+      status: "rejected",
+      missingFields: [],
+      sourceText: "Sprayed corn on main field.",
     });
 
     expect(result.success).toBe(true);

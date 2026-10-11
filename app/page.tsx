@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
+import { farmInteractionResultSchema } from "@/src/application/farm-response-schema";
 
 type FarmEvent = {
   activity: string;
@@ -11,17 +12,14 @@ type FarmEvent = {
   missingFields: string[];
 };
 
-type FarmInteractionResult = {
-  events: FarmEvent[];
-  clarificationRequired: boolean;
-  clarificationQuestion: string | null;
-};
-
 export default function HomePage() {
   const [message, setMessage] = useState("");
   const [result, setResult] = useState<FarmInteractionResult | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [clarificationAnswer, setClarificationAnswer] = useState("");
+  const [isEditing, setIsEditing] = useState(false);
+  const [editingIndex, setEditingIndex] = useState(-1);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -29,21 +27,31 @@ export default function HomePage() {
 
     setIsLoading(true);
     setError(null);
-    setResult(null);
 
     try {
+      const payload =
+        result && result.clarificationRequired && clarificationAnswer.trim()
+          ? { message, clarificationAnswer }
+          : { message };
+
       const response = await fetch("/api/extract-event", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ message }),
+        body: JSON.stringify(payload),
       });
-      const body: unknown = await response.json();
+      const body = await response.json();
 
       if (!response.ok) {
         throw new Error("FarmMind could not process that message.");
       }
 
-      setResult(body as FarmInteractionResult);
+      const parsed = farmInteractionResultSchema.safeParse(body);
+      if (!parsed.success) {
+        throw new Error("FarmMind returned invalid data.");
+      }
+
+      setResult(parsed.data as FarmInteractionResult);
+      setClarificationAnswer("");
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -110,6 +118,38 @@ export default function HomePage() {
         </section>
       )}
 
+      {result &&
+        result.clarificationRequired &&
+        clarificationAnswer.length < 1 &&
+        !isLoading && (
+        <section className="clarification-card">
+          <div className="section-heading">
+            <p className="eyebrow">CLARIFICATION NEEDED</p>
+            <h3>To complete this {result.events[0]?.activity} record, what is the <u>one detail</u> needed?</h3>
+          </div>
+          <p className="clarification-question">
+            {result.clarificationQuestion}
+          </p>
+          <textarea
+            rows={2}
+            placeholder="Type the missing detail..."
+            value={clarificationAnswer}
+            onChange={(e) => setClarificationAnswer(e.target.value)}
+            disabled={isLoading}
+          />
+          <div className="form-footer">
+            <button
+              type="submit"
+              disabled={isLoading}
+              className="primary-button"
+              onClick={handleSubmit}
+            >
+              Submit answer
+            </button>
+          </div>
+        </section>
+      )}
+
       {result && (
         <section className="feedback-card" aria-live="polite">
           <div className="result-heading">
@@ -142,34 +182,160 @@ export default function HomePage() {
                 </span>
               </div>
               <dl className="event-details">
-                <div>
-                  <dt>Crop</dt>
-                  <dd>{farmEvent.crop ?? "Missing"}</dd>
-                </div>
-                <div>
-                  <dt>Field</dt>
-                  <dd>{farmEvent.field ?? "Missing"}</dd>
-                </div>
-                <div>
-                  <dt>Date</dt>
-                  <dd>{farmEvent.eventDate ?? "Missing"}</dd>
-                </div>
+                {(isEditing && editingIndex === index) ? (
+                  <div className="edit-fields-popup">
+                    <div className="popup-header">
+                      <span className="popup-title">Edit {farmEvent.activity}</span>
+                      <button
+                        onClick={() => {
+                          setIsEditing(false);
+                          setEditingIndex(-1);
+                          setResult(null);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    </div>
+                    <div className="popup-body">
+                      <div>
+                        <label>Crop</label>
+                        <input
+                          defaultValue={farmEvent.crop || ""}
+                          onChange={(e) =>
+                            setResult((prev) => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                events: prev.events.map((e, i) =>
+                                  i === index
+                                    ? { ...e, crop: e.target.value }
+                                    : e
+                                ),
+                              };
+                            }}
+                        />
+                      </div>
+                      <div>
+                        <label>Field</label>
+                        <input
+                          defaultValue={farmEvent.field || ""}
+                          onChange={(e) =>
+                            setResult((prev) => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                events: prev.events.map((e, i) =>
+                                  i === index
+                                    ? { ...e, field: e.target.value }
+                                    : e
+                                ),
+                              };
+                            }}
+                        />
+                      </div>
+                      <div>
+                        <label>Date (YYYY-MM-DD)</label>
+                        <input
+                          defaultValue={farmEvent.eventDate || ""}
+                          onChange={(e) =>
+                            setResult((prev) => {
+                              if (!prev) return prev;
+                              return {
+                                ...prev,
+                                events: prev.events.map((e, i) =>
+                                  i === index
+                                    ? { ...e, eventDate: e.target.value }
+                                    : e
+                                ),
+                              };
+                            }}
+                        />
+                      </div>
+                    </div>
+                    <div className="popup-footer">
+                      <button
+                        className="secondary-button"
+                        onClick={() => {
+                          setIsEditing(false);
+                          setEditingIndex(-1);
+                          setResult(null);
+                        }}
+                      >
+                        Cancel
+                      </button>
+                      <button className="primary-button" onClick={() => setIsEditing(false)}>
+                        Save
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <dl className="event-details">
+                    <div>
+                      <dt>Crop</dt>
+                      <dd>{farmEvent.crop ?? "Missing"}</dd>
+                    </div>
+                    <div>
+                      <dt>Field</dt>
+                      <dd>{farmEvent.field ?? "Missing"}</dd>
+                    </div>
+                    <div>
+                      <dt>Date</dt>
+                      <dd>{farmEvent.eventDate ?? "Missing"}</dd>
+                    </div>
+                  </dl>
+                )}
+                {farmEvent.missingFields.length > 0 && (
+                  <p className="missing-note">
+                    Missing: {farmEvent.missingFields.join(", ")}
+                  </p>
+                )}
               </dl>
-              {farmEvent.missingFields.length > 0 && (
-                <p className="missing-note">
-                  Missing: {farmEvent.missingFields.join(", ")}
-                </p>
-              )}
             </article>
           ))}
 
           {!result.clarificationRequired && result.events.length > 0 && (
             <div className="action-row">
-              <button className="secondary-button" type="button">
+              <button
+                className="secondary-button" type="button"
+                onClick={() => setIsEditing(true)}
+              >
                 Edit details
               </button>
-              <button className="primary-button" type="button">
+              <button
+                className="primary-button" type="button"
+                onClick={() => setResult((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    events: prev.events.map((event, i) =>
+                      i === editingIndex
+                        ? { ...event, status: "confirmed" }
+                        : event
+                    ),
+                    isEditing: false,
+                    editingIndex: -1,
+                  };
+                }}
+              >
                 Confirm record
+              </button>
+              <button
+                className="secondary-button" type="button"
+                onClick={() => setResult((prev) => {
+                  if (!prev) return prev;
+                  return {
+                    ...prev,
+                    events: prev.events.map((event, i) =>
+                      i === editingIndex
+                        ? { ...event, status: "rejected" }
+                        : event
+                    ),
+                    isEditing: false,
+                    editingIndex: -1,
+                  };
+                }}
+              >
+                Reject record
               </button>
             </div>
           )}
