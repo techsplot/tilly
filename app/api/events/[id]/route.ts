@@ -33,7 +33,16 @@ export async function PATCH(
       { status: 404 },
     );
   try {
-    const parsed = changesSchema.safeParse(await request.json());
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { error: "Please send a valid JSON request." },
+        { status: 400 },
+      );
+    }
+    const parsed = changesSchema.safeParse(body);
     if (!parsed.success)
       return Response.json(
         { error: parsed.error.issues[0]?.message ?? "Invalid request." },

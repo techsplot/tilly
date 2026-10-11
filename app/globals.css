@@ -253,6 +253,44 @@ button:disabled {
   padding: 16px;
 }
 
+.history-card {
+  margin-top: 18px;
+}
+
+.history-list {
+  display: grid;
+  gap: 10px;
+}
+
+.history-item {
+  align-items: center;
+  background: var(--soft-green);
+  border: 1px solid #d9e8d7;
+  border-radius: 12px;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px;
+}
+
+.history-item strong {
+  text-transform: capitalize;
+}
+
+.history-item p {
+  color: var(--muted);
+  font-size: 13px;
+  margin: 5px 0 0;
+}
+
+.history-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 .event-type {
   font-size: 17px;
   font-weight: 700;
@@ -352,5 +390,14 @@ footer {
 
   .edit-form {
     grid-template-columns: 1fr;
+  }
+
+  .history-item {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-actions {
+    justify-content: space-between;
   }
 }

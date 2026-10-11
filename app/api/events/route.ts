@@ -48,7 +48,16 @@ function errorResponse(error: unknown): Response {
 
 export async function POST(request: Request): Promise<Response> {
   try {
-    const parsed = recordRequestSchema.safeParse(await request.json());
+    let body: unknown;
+    try {
+      body = await request.json();
+    } catch {
+      return Response.json(
+        { error: "Please send a valid JSON request." },
+        { status: 400 },
+      );
+    }
+    const parsed = recordRequestSchema.safeParse(body);
     if (!parsed.success) return errorResponse(parsed.error);
     const db = getDb();
     const context = await getFarmContext(db, request);

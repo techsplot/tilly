@@ -32,12 +32,13 @@ Working today:
 - the `/api/extract-event` route and the `pnpm extract-event` command, both
   making live Nemotron calls.
 - clarification answers, local event correction, confirmation/rejection
-  transitions, and honest loading/error states. Confirmed records remain local
-  preview state until Phase 3 persistence.
+  transitions, and honest loading/error states.
+- PostgreSQL persistence through Drizzle, browser-scoped anonymous farms,
+  decision-time saving, and a Farm history timeline.
 
-Not built yet: saving records, the farm timeline, reminders, evaluation
-results, and a hosted demo. The [implementation plan](.github/implementation-plan.md)
-tracks progress phase by phase.
+Not built yet: reminders, evaluation results, and a hosted demo. The
+[implementation plan](.github/implementation-plan.md) tracks progress phase by
+phase.
 
 ## Prerequisites
 
@@ -72,6 +73,15 @@ Copy-Item .env.example .env
 ```
 
 Set `NEBIUS_API_KEY` and `NEBIUS_MODEL` in `.env`. Never commit `.env`.
+Set `DATABASE_URL` to a PostgreSQL connection string, then apply the committed
+migrations:
+
+```powershell
+pnpm db:migrate
+```
+
+The browser receives an anonymous farm cookie. Clearing browser data starts a
+new farm; there is no login in this phase.
 
 ## Commands
 
