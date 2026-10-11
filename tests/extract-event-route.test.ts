@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockExtractFarmEvent = vi.hoisted(() => vi.fn());
 vi.mock("../src/application/extract-farm-event", () => ({
@@ -35,8 +35,14 @@ const validResult = {
 
 describe("extract event route", () => {
   beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-11T12:00:00Z"));
     mockExtractFarmEvent.mockReset();
     vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
   });
 
   it("returns 200 on success", async () => {
@@ -62,6 +68,14 @@ describe("extract event route", () => {
       request(JSON.stringify({ message: "test", currentDate: "2020-01-01" })),
     );
     expect(response.status).toBe(400);
+  });
+
+  it("accepts a date exactly one day away", async () => {
+    mockExtractFarmEvent.mockResolvedValue(validResult);
+    const response = await POST(
+      request(JSON.stringify({ message: "test", currentDate: "2026-10-12" })),
+    );
+    expect(response.status).toBe(200);
   });
 
   it("returns 400 for invalid JSON", async () => {
