@@ -36,6 +36,15 @@ export async function createFarm(db: Database): Promise<string> {
   return farm.id;
 }
 
+export async function findFarm(db: Database, farmId: string): Promise<boolean> {
+  const [farm] = await db
+    .select({ id: farms.id })
+    .from(farms)
+    .where(eq(farms.id, farmId))
+    .limit(1);
+  return Boolean(farm);
+}
+
 export async function findFarmEvent(
   db: Database,
   farmId: string,
