@@ -76,6 +76,7 @@ export const farmEvents = pgTable(
     status: farmEventStatusEnum("status").notNull(),
     missingFields: text("missing_fields").array().notNull(),
     sourceText: text("source_text").notNull(),
+    memoryEventIds: uuid("memory_event_ids").array().notNull().default([]),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

@@ -35,6 +35,19 @@ export const farmEventSchema = farmEventCandidateSchema.extend({
   status: farmEventStatusSchema,
   missingFields: z.array(z.string()),
   sourceText: z.string(),
+  fieldSource: z.enum(["message", "memory"]).nullable().optional(),
+  cropSource: z.enum(["message", "memory"]).nullable().optional(),
+  memoryEventIds: z.array(z.uuid()).optional(),
+  resolvedFromMemory: z
+    .array(
+      z.object({
+        field: z.literal("field").optional(),
+        crop: z.literal("crop").optional(),
+        eventId: z.uuid(),
+      }),
+    )
+    .optional(),
+  unresolvedReferences: z.array(z.string()).optional(),
 });
 
 export const farmInteractionSchema = z
