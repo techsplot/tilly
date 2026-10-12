@@ -20,7 +20,7 @@ export const farmEventCandidateSchema = z.object({
   unit: z.string().nullable(),
   fieldSource: z.enum(["message", "memory"]).nullable().optional(),
   cropSource: z.enum(["message", "memory"]).nullable().optional(),
-  memoryEventIds: z.array(z.uuid()).optional(),
+  memoryEventIds: z.array(z.string()).optional(),
 });
 
 export const farmEventStatusSchema = z.enum([

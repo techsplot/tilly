@@ -8,7 +8,10 @@ vi.mock("../src/infrastructure/nebius/nebius-client", () => ({
   getNebiusModel: vi.fn(() => "test-model"),
 }));
 
-import { extractFarmEvent } from "../src/application/extract-farm-event";
+import {
+  buildMemoryClarificationQuestion,
+  extractFarmEvent,
+} from "../src/application/extract-farm-event";
 
 const memory = {
   fields: [{ id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", name: "Back Field" }],
@@ -111,5 +114,70 @@ describe("farm event extraction memory", () => {
     expect(result.events[0]?.unresolvedReferences).toContain("field");
     expect(result.clarificationRequired).toBe(true);
     expect(result.clarificationQuestion).toContain("Back Field");
+  });
+
+  it("drops malformed model event ids instead of failing extraction", async () => {
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: null,
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        memoryEventIds: ["event-1"],
+      }),
+    );
+    const result = await extractFarmEvent(
+      "I weeded a field",
+      "2026-10-12",
+      undefined,
+      memory,
+    );
+    expect(result.events[0]?.memoryEventIds).toEqual([]);
+  });
+
+  it("asks with both recent field options when memory is ambiguous", async () => {
+    const ambiguousMemory = {
+      fields: [
+        ...memory.fields,
+        { id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", name: "River Field" },
+      ],
+      recentEvents: [
+        ...memory.recentEvents,
+        {
+          ...memory.recentEvents[0]!,
+          id: "22222222-2222-4222-8222-222222222222",
+          field: "River Field",
+        },
+      ],
+    };
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: "Back Field",
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        fieldSource: "memory",
+        memoryEventIds: [ambiguousMemory.recentEvents[0]!.id],
+      }),
+    );
+    const result = await extractFarmEvent(
+      "I weeded that field",
+      "2026-10-12",
+      undefined,
+      ambiguousMemory,
+    );
+    expect(result.clarificationQuestion).toBe(
+      "Which field did you mean: Back Field or River Field?",
+    );
+  });
+
+  it("formats memory clarification options", () => {
+    expect(
+      buildMemoryClarificationQuestion("field", ["Back Field", "River Field"]),
+    ).toBe("Which field did you mean: Back Field or River Field?");
   });
 });
