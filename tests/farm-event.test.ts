@@ -9,6 +9,7 @@ import {
   confirmEvent,
   rejectEvent,
   farmRequestSchema,
+  isActionable,
 } from "../src/domain/farm-event";
 
 describe("farm interaction schema", () => {
@@ -486,7 +487,7 @@ describe("domain transitions", () => {
     ...overrides,
   });
 
-  it("correctEvent completes an event and sets status to corrected", () => {
+  it("correctEvent completes an unconfirmed event and keeps it proposed", () => {
     const event = makeEvent({
       activity: "planting",
       crop: "maize",
@@ -500,12 +501,12 @@ describe("domain transitions", () => {
     });
 
     const result = correctEvent(event, { field: "Back Field" });
-    expect(result.status).toBe("corrected");
+    expect(result.status).toBe("proposed");
     expect(result.field).toBe("Back Field");
     expect(result.missingFields).toEqual([]);
   });
 
-  it("correctEvent with all fields becomes corrected", () => {
+  it("correctEvent with all fields becomes proposed before confirmation", () => {
     const event = makeEvent({
       activity: "planting",
       crop: "maize",
@@ -519,7 +520,7 @@ describe("domain transitions", () => {
     });
 
     const result = correctEvent(event, { eventDate: "2026-10-06" });
-    expect(result.status).toBe("corrected");
+    expect(result.status).toBe("proposed");
     expect(result.missingFields).toEqual([]);
   });
 
@@ -564,11 +565,25 @@ describe("domain transitions", () => {
     expect(result.missingFields).toEqual(["field"]);
   });
 
-  it("correctEvent refuses confirmed and rejected events", () => {
-    expect(() =>
-      correctEvent(makeEvent({ status: "confirmed" }), {}),
-    ).toThrow();
+  it("correctEvent allows confirmed and refuses rejected events", () => {
+    expect(correctEvent(makeEvent({ status: "confirmed" }), {}).status).toBe(
+      "corrected",
+    );
     expect(() => correctEvent(makeEvent({ status: "rejected" }), {})).toThrow();
+  });
+
+  it("correcting a confirmed event creates an actionable corrected event", () => {
+    expect(correctEvent(makeEvent({ status: "confirmed" }), {}).status).toBe(
+      "corrected",
+    );
+  });
+
+  it("isActionable is true only for confirmed and corrected events", () => {
+    expect(isActionable(makeEvent({ status: "confirmed" }))).toBe(true);
+    expect(isActionable(makeEvent({ status: "corrected" }))).toBe(true);
+    expect(isActionable(makeEvent({ status: "proposed" }))).toBe(false);
+    expect(isActionable(makeEvent({ status: "incomplete" }))).toBe(false);
+    expect(isActionable(makeEvent({ status: "rejected" }))).toBe(false);
   });
 
   it("confirmEvent from proposed with no missing fields succeeds", () => {
@@ -624,7 +639,7 @@ describe("domain transitions", () => {
     );
   });
 
-  it("rejectEvent works from any non-confirmed status", () => {
+  it("rejectEvent works from an unconfirmed status", () => {
     const event = makeEvent({
       activity: "planting",
       crop: "maize",
@@ -639,6 +654,12 @@ describe("domain transitions", () => {
 
     const result = rejectEvent(event);
     expect(result.status).toBe("rejected");
+  });
+
+  it("a corrected event cannot be rejected", () => {
+    expect(() => rejectEvent(makeEvent({ status: "corrected" }))).toThrow(
+      "rejectEvent: cannot reject a confirmed event",
+    );
   });
 
   it("a confirmed event cannot be rejected", () => {
