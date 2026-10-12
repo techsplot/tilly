@@ -191,9 +191,13 @@ export async function loadMemoryFields(
       lastUsedAt: sql<Date | null>`max(${farmEvents.createdAt})`,
     })
     .from(fields)
-    .leftJoin(
+    .innerJoin(
       farmEvents,
-      and(eq(farmEvents.fieldId, fields.id), eq(farmEvents.farmId, farmId)),
+      and(
+        eq(farmEvents.fieldId, fields.id),
+        eq(farmEvents.farmId, farmId),
+        inArray(farmEvents.status, ["confirmed", "corrected"]),
+      ),
     )
     .where(eq(fields.farmId, farmId))
     .groupBy(fields.id, fields.name)

@@ -8,7 +8,11 @@ import {
   type FarmInteraction,
   type FarmInteractionResult,
 } from "../domain/farm-event";
-import { verifyMemoryReferences, type FarmMemory } from "../domain/farm-memory";
+import {
+  getMemoryReferenceOptions,
+  verifyMemoryReferences,
+  type FarmMemory,
+} from "../domain/farm-memory";
 import {
   createNebiusClient,
   getNebiusModel,
@@ -52,8 +56,17 @@ references in the message such as "that field", "the maize", or "same place
 as last week". Never copy a value from memory unless the message refers to it.
 If a reference could match more than one field or crop, do not choose; leave
 the value null and ask one question naming the options. Cite the memory event
-ids used for each memory-sourced value.
+ids used for each memory-sourced value. Only resolve a field or crop from
+recentEvents, and cite the event ids you used.
 `;
+
+export function buildMemoryClarificationQuestion(
+  kind: "field" | "crop",
+  options: string[],
+): string | null {
+  if (options.length === 0) return null;
+  return `Which ${kind} did you mean: ${options.join(" or ")}?`;
+}
 
 function applyInteractionPolicy(
   interaction: FarmInteraction,
@@ -83,24 +96,18 @@ function applyInteractionPolicy(
     ...interaction,
     clarificationRequired: true,
     clarificationQuestion:
-      firstIncompleteEvent.unresolvedReferences?.includes("field") &&
-      farmMemory.fields.length > 0
-        ? `Which field did you mean: ${farmMemory.fields
-            .map((field) => field.name)
-            .join(" or ")}?`
+      (firstIncompleteEvent.unresolvedReferences?.includes("field")
+        ? buildMemoryClarificationQuestion(
+            "field",
+            getMemoryReferenceOptions(farmMemory, "field"),
+          )
         : firstIncompleteEvent.unresolvedReferences?.includes("crop")
-          ? `Which crop did you mean: ${farmMemory.recentEvents
-              .map((event) => event.crop)
-              .filter((crop): crop is string => crop !== null)
-              .filter(
-                (crop, index, crops) =>
-                  crops.findIndex(
-                    (candidate) =>
-                      candidate.toLowerCase() === crop.toLowerCase(),
-                  ) === index,
-              )
-              .join(" or ")}?`
-          : `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
+          ? buildMemoryClarificationQuestion(
+              "crop",
+              getMemoryReferenceOptions(farmMemory, "crop"),
+            )
+          : null) ??
+      `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
     events,
   };
 }
