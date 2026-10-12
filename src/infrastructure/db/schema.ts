@@ -28,6 +28,10 @@ export const farmEventStatusEnum = pgEnum("farm_event_status", [
   "corrected",
   "rejected",
 ] as const);
+export const farmEventSavedByEnum = pgEnum("farm_event_saved_by", [
+  "agent",
+  "farmer",
+] as const);
 
 export const farms = pgTable("farms", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -77,6 +81,8 @@ export const farmEvents = pgTable(
     missingFields: text("missing_fields").array().notNull(),
     sourceText: text("source_text").notNull(),
     memoryEventIds: uuid("memory_event_ids").array().notNull().default([]),
+    savedBy: farmEventSavedByEnum("saved_by").notNull().default("farmer"),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),

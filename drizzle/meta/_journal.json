@@ -15,6 +15,13 @@
       "when": 1791805381822,
       "tag": "0001_sleepy_sugar_man",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1791813918238,
+      "tag": "0002_thick_martin_li",
+      "breakpoints": true
     }
   ]
 }

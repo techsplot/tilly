@@ -9,25 +9,31 @@ import {
   type FarmEvent,
 } from "../domain/farm-event";
 import {
-  findFarmEvent,
   findActionableMemoryEventIds,
+  findFarmEvent,
+  findFarmEventAny,
+  findLatestCorrection,
   insertCorrection,
   insertFarmEvent,
   listFarmEvents as listRows,
+  restoreFarmEvent,
+  softDeleteFarmEvent,
   toFarmEvent,
   updateFarmEvent,
   upsertField,
   type Database,
+  type SavedBy,
 } from "../infrastructure/db/farm-event-repository";
 import { NotFoundError } from "./errors";
 
 export type Decision = "confirm" | "reject" | "save_incomplete";
-export type SavedFarmEvent = FarmEvent & { id: string };
+export type UndoableAction = "recorded" | "corrected" | "deleted";
+export type SavedFarmEvent = FarmEvent & { id: string; savedBy: SavedBy };
 
 function withId(
   row: Awaited<ReturnType<typeof insertFarmEvent>>,
 ): SavedFarmEvent {
-  return { ...toFarmEvent(row), id: row.id };
+  return { ...toFarmEvent(row), id: row.id, savedBy: row.savedBy };
 }
 
 function validateFinal(event: FarmEvent): FarmEvent {
@@ -60,7 +66,7 @@ function decisionEvent(event: FarmEvent, decision: Decision): FarmEvent {
   return normalized;
 }
 
-function changedFields(
+export function changedFields(
   before: FarmEvent,
   after: FarmEvent,
 ): {
@@ -104,12 +110,110 @@ export async function recordFarmEvent(
       fieldId: field?.id ?? null,
       final,
       sourceText: input.proposal.sourceText,
+      savedBy: "farmer",
     });
     const correction = changedFields(input.proposal, final);
     if (correction) {
       await insertCorrection(tx, row.id, correction.before, correction.after);
     }
     return withId(row);
+  });
+}
+
+export async function recordAgentEvent(
+  db: Database,
+  farmId: string,
+  input: { final: FarmEvent; status: "confirmed" | "incomplete" },
+): Promise<SavedFarmEvent> {
+  return db.transaction(async (tx) => {
+    const validated = validateFinal(input.final);
+    const final = {
+      ...validated,
+      status: validated.missingFields.length > 0 ? "incomplete" : input.status,
+      memoryEventIds: await findActionableMemoryEventIds(
+        tx,
+        farmId,
+        input.final.memoryEventIds ?? [],
+      ),
+    } satisfies FarmEvent;
+    const field = final.field
+      ? await upsertField(tx, farmId, final.field)
+      : null;
+    const row = await insertFarmEvent(tx, {
+      farmId,
+      fieldId: field?.id ?? null,
+      final,
+      sourceText: final.sourceText,
+      savedBy: "agent",
+    });
+    return withId(row);
+  });
+}
+
+export async function undoAgentAction(
+  db: Database,
+  farmId: string,
+  eventId: string,
+  action: UndoableAction,
+): Promise<SavedFarmEvent> {
+  return db.transaction(async (tx) => {
+    const row = await findFarmEventAny(tx, farmId, eventId);
+    if (!row) throw new NotFoundError("Farm event was not found.");
+    const isDeleted = row.deletedAt !== null;
+
+    if (action === "deleted") {
+      if (!isDeleted) {
+        throw new LifecycleError("This record is not currently deleted.");
+      }
+      const restored = await restoreFarmEvent(tx, farmId, eventId);
+      await insertCorrection(
+        tx,
+        eventId,
+        { deleted: true },
+        { deleted: false },
+      );
+      return withId(restored);
+    }
+
+    if (isDeleted) {
+      throw new LifecycleError("This record has already been deleted.");
+    }
+
+    if (action === "recorded") {
+      const deleted = await softDeleteFarmEvent(tx, farmId, eventId);
+      await insertCorrection(
+        tx,
+        eventId,
+        { deleted: false },
+        { deleted: true },
+      );
+      return withId(deleted);
+    }
+
+    const correction = await findLatestCorrection(tx, eventId);
+    if (!correction) {
+      throw new LifecycleError("No correction to undo for this record.");
+    }
+    const before = toFarmEvent(row);
+    const reversed = correctEvent(
+      before,
+      correction.before as Parameters<typeof correctEvent>[1],
+    );
+    const field = reversed.field
+      ? await upsertField(tx, farmId, reversed.field)
+      : null;
+    const updated = await updateFarmEvent(
+      tx,
+      farmId,
+      eventId,
+      reversed,
+      field?.id ?? null,
+    );
+    const diff = changedFields(before, reversed);
+    if (diff) {
+      await insertCorrection(tx, eventId, diff.before, diff.after);
+    }
+    return withId(updated);
   });
 }
 
@@ -183,5 +287,5 @@ export async function listTimeline(
   farmId: string,
 ): Promise<SavedFarmEvent[]> {
   const rows = await listRows(db, farmId);
-  return rows.map((row) => ({ ...toFarmEvent(row), id: row.id }));
+  return rows.map((row) => withId(row));
 }
