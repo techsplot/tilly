@@ -160,7 +160,10 @@ describe("farm event persistence", () => {
     });
     expect(memory.recentEvents[0]).not.toHaveProperty("sourceText");
     expect(memory.fields.map((field) => field.name)).toEqual(
-      expect.arrayContaining(["Back Field", "Old Field", "Draft Field"]),
+      expect.arrayContaining(["Back Field", "Old Field"]),
+    );
+    expect(memory.fields.map((field) => field.name)).not.toContain(
+      "Draft Field",
     );
     expect(
       memory.recentEvents.some((item) => item.field === "Other Farm Field"),
