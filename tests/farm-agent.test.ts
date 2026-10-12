@@ -152,6 +152,26 @@ describe("farm agent service", () => {
     expect(row?.status).toBe("confirmed");
   });
 
+  it("saves eventTime and the derived time_of_day end to end (finding 17)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ eventTime: "16:00", timeOfDay: "morning" }),
+      ]),
+    );
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the back field at 4pm",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions[0]?.type).toBe("recorded");
+    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(actions[0].event.eventTime).toBe("16:00");
+    expect(actions[0].event.timeOfDay).toBe("afternoon");
+  });
+
   it("asks one question mentioning both missing details, then saves with the given detail and date_assumed (finding 8, 9, 11)", async () => {
     const farmId = await createFarm(db);
     mockCreate.mockResolvedValueOnce(

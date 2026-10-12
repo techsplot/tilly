@@ -32,7 +32,9 @@ export function toFarmEvent(row: FarmEventRow): FarmEvent {
     sourceText: row.sourceText,
     memoryEventIds: row.memoryEventIds,
     dateAssumed: row.dateAssumed,
-    eventTime: row.eventTime,
+    // Postgres' time column round-trips as "HH:MM:SS"; normalize back to
+    // the "HH:MM" the model contract and corrections use.
+    eventTime: row.eventTime ? row.eventTime.slice(0, 5) : row.eventTime,
     timeOfDay: row.timeOfDay,
   };
 }
