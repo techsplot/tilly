@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockDb = {};
 const mockGetFarmContext = vi.hoisted(() => vi.fn());
+const mockGetExistingFarmId = vi.hoisted(() => vi.fn());
 const mockRecordFarmEvent = vi.hoisted(() => vi.fn());
 const mockListTimeline = vi.hoisted(() => vi.fn());
 const mockCorrectRecordedEvent = vi.hoisted(() => vi.fn());
@@ -13,6 +14,7 @@ vi.mock("../src/infrastructure/db/client", () => ({
 }));
 vi.mock("../src/application/farm-context", () => ({
   getFarmContext: mockGetFarmContext,
+  getExistingFarmId: mockGetExistingFarmId,
   farmCookieHeader: vi.fn((farmId: string) => `farm=${farmId}`),
   isUuid: vi.fn((value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
@@ -31,6 +33,8 @@ vi.mock("../src/application/persist-farm-event", () => ({
 import { POST, GET } from "../app/api/events/route";
 import { PATCH } from "../app/api/events/[id]/route";
 import { POST as CONFIRM } from "../app/api/events/[id]/confirm/route";
+import { POST as REJECT } from "../app/api/events/[id]/reject/route";
+import { LifecycleError } from "../src/domain/farm-event";
 
 const farmEvent = {
   activity: "planting",
@@ -50,6 +54,7 @@ describe("farm event routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
     mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: true });
+    mockGetExistingFarmId.mockResolvedValue("farm-id");
     mockRecordFarmEvent.mockReset();
     mockListTimeline.mockReset();
     mockCorrectRecordedEvent.mockReset();
@@ -90,6 +95,14 @@ describe("farm event routes", () => {
     await expect(response.json()).resolves.toEqual({ events: [savedEvent] });
   });
 
+  it("does not create a farm when listing without a cookie", async () => {
+    mockGetExistingFarmId.mockResolvedValue(undefined);
+    const response = await GET(new Request("http://localhost/api/events"));
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ events: [] });
+    expect(mockListTimeline).not.toHaveBeenCalled();
+  });
+
   it("returns 404 for malformed ids", async () => {
     const response = await PATCH(
       new Request("http://localhost/api/events/not-an-id", {
@@ -103,7 +116,7 @@ describe("farm event routes", () => {
 
   it("maps refused confirmation to 409", async () => {
     mockConfirmRecordedEvent.mockRejectedValue(
-      new Error("confirmEvent: event has missing fields"),
+      new LifecycleError("confirmEvent: event has missing fields"),
     );
     const response = await CONFIRM(
       new Request(
@@ -120,6 +133,40 @@ describe("farm event routes", () => {
   it("does not expose unexpected errors", async () => {
     mockListTimeline.mockRejectedValue(new Error("database password"));
     const response = await GET(new Request("http://localhost/api/events"));
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "FarmMind could not save that record. Please try again.",
+    });
+  });
+
+  it("does not expose unexpected confirmation errors", async () => {
+    mockConfirmRecordedEvent.mockRejectedValue(new Error("database password"));
+    const response = await CONFIRM(
+      new Request(
+        "http://localhost/api/events/11111111-1111-4111-8111-111111111111/confirm",
+        {
+          method: "POST",
+        },
+      ),
+      { params: Promise.resolve({ id: savedEvent.id }) },
+    );
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error: "FarmMind could not save that record. Please try again.",
+    });
+  });
+
+  it("does not expose unexpected rejection errors", async () => {
+    mockRejectRecordedEvent.mockRejectedValue(new Error("database password"));
+    const response = await REJECT(
+      new Request(
+        "http://localhost/api/events/11111111-1111-4111-8111-111111111111/reject",
+        {
+          method: "POST",
+        },
+      ),
+      { params: Promise.resolve({ id: savedEvent.id }) },
+    );
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error: "FarmMind could not save that record. Please try again.",

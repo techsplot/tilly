@@ -3,7 +3,9 @@ import {
   correctEvent,
   farmEventCandidateSchema,
   getMissingFields,
+  LifecycleError,
   rejectEvent,
+  ValidationError,
   type FarmEvent,
 } from "../domain/farm-event";
 import {
@@ -11,12 +13,12 @@ import {
   insertCorrection,
   insertFarmEvent,
   listFarmEvents as listRows,
-  normalizeFieldName,
   toFarmEvent,
   updateFarmEvent,
   upsertField,
   type Database,
 } from "../infrastructure/db/farm-event-repository";
+import { NotFoundError } from "./errors";
 
 export type Decision = "confirm" | "reject" | "save_incomplete";
 export type SavedFarmEvent = FarmEvent & { id: string };
@@ -30,7 +32,7 @@ function withId(
 function validateFinal(event: FarmEvent): FarmEvent {
   const candidate = farmEventCandidateSchema.safeParse(event);
   if (!candidate.success) {
-    throw new Error(
+    throw new ValidationError(
       candidate.error.issues[0]?.message ?? "Invalid farm event.",
     );
   }
@@ -43,12 +45,18 @@ function validateFinal(event: FarmEvent): FarmEvent {
 
 function decisionEvent(event: FarmEvent, decision: Decision): FarmEvent {
   const validated = validateFinal(event);
-  if (decision === "confirm") return confirmEvent(validated);
-  if (decision === "reject") return rejectEvent(validated);
-  if (validated.missingFields.length === 0) {
-    throw new Error("save_incomplete requires missing fields");
+  const missingFields = getMissingFields(validated);
+  const normalized = {
+    ...validated,
+    missingFields,
+    status: missingFields.length > 0 ? "incomplete" : "proposed",
+  } satisfies FarmEvent;
+  if (decision === "confirm") return confirmEvent(normalized);
+  if (decision === "reject") return rejectEvent(normalized);
+  if (normalized.missingFields.length === 0) {
+    throw new LifecycleError("save_incomplete requires missing fields");
   }
-  return { ...validated, status: "incomplete" };
+  return normalized;
 }
 
 function changedFields(
@@ -104,7 +112,7 @@ export async function correctRecordedEvent(
 ): Promise<SavedFarmEvent> {
   return db.transaction(async (tx) => {
     const row = await findFarmEvent(tx, farmId, eventId);
-    if (!row) throw new Error("Farm event was not found.");
+    if (!row) throw new NotFoundError("Farm event was not found.");
     const before = toFarmEvent(row);
     const corrected = correctEvent(before, changes);
     const field = corrected.field
@@ -149,7 +157,7 @@ async function transitionSavedEvent(
 ): Promise<SavedFarmEvent> {
   return db.transaction(async (tx) => {
     const row = await findFarmEvent(tx, farmId, eventId);
-    if (!row) throw new Error("Farm event was not found.");
+    if (!row) throw new NotFoundError("Farm event was not found.");
     const updated = await updateFarmEvent(
       tx,
       farmId,
@@ -168,5 +176,3 @@ export async function listTimeline(
   const rows = await listRows(db, farmId);
   return rows.map((row) => ({ ...toFarmEvent(row), id: row.id }));
 }
-
-export { normalizeFieldName };

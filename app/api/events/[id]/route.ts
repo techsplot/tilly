@@ -6,6 +6,7 @@ import {
 } from "@/src/application/farm-context";
 import { correctRecordedEvent } from "@/src/application/persist-farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
+import { eventErrorResponse } from "../errors";
 
 const changesSchema = z
   .object({
@@ -54,22 +55,6 @@ export async function PATCH(
       response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));
     return response;
   } catch (error) {
-    if (
-      error instanceof Error &&
-      error.message === "Farm event was not found."
-    ) {
-      return Response.json(
-        { error: "Farm event was not found." },
-        { status: 404 },
-      );
-    }
-    if (error instanceof Error && error.message.includes("cannot edit")) {
-      return Response.json({ error: error.message }, { status: 409 });
-    }
-    console.error("Farm event correction failed", error);
-    return Response.json(
-      { error: "FarmMind could not save that record. Please try again." },
-      { status: 500 },
-    );
+    return eventErrorResponse(error);
   }
 }

@@ -5,6 +5,7 @@ import {
 } from "@/src/application/farm-context";
 import { rejectRecordedEvent } from "@/src/application/persist-farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
+import { eventErrorResponse } from "../../errors";
 
 export async function POST(
   request: Request,
@@ -25,14 +26,6 @@ export async function POST(
       response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));
     return response;
   } catch (error) {
-    if (error instanceof Error && error.message === "Farm event was not found.")
-      return Response.json({ error: error.message }, { status: 404 });
-    if (error instanceof Error)
-      return Response.json({ error: error.message }, { status: 409 });
-    console.error("Farm event rejection failed", error);
-    return Response.json(
-      { error: "FarmMind could not save that record. Please try again." },
-      { status: 500 },
-    );
+    return eventErrorResponse(error);
   }
 }

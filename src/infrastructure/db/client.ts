@@ -19,9 +19,3 @@ export function getDb(): AppDb {
   database = drizzle(pool, { schema });
   return database;
 }
-
-export function getDbPool(): Pool {
-  getDb();
-  if (!pool) throw new Error("Database pool was not initialized.");
-  return pool;
-}

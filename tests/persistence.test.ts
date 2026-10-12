@@ -1,7 +1,15 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import {
   confirmRecordedEvent,
   correctRecordedEvent,
@@ -16,6 +24,7 @@ import {
   eventCorrections,
 } from "../src/infrastructure/db/schema";
 import { createFarm } from "../src/infrastructure/db/farm-event-repository";
+import * as repository from "../src/infrastructure/db/farm-event-repository";
 
 const migrationFolder = "drizzle";
 
@@ -96,6 +105,26 @@ describe("farm event persistence", () => {
     expect(rejected.status).toBe("rejected");
   });
 
+  it("recomputes status and refuses a client-confirmed incomplete event", async () => {
+    const farmId = await createFarm(db);
+    const incomplete = event({
+      crop: null,
+      field: null,
+      eventDate: null,
+      status: "confirmed",
+      missingFields: [],
+    });
+
+    await expect(
+      recordFarmEvent(db, farmId, {
+        proposal: incomplete,
+        final: incomplete,
+        decision: "confirm",
+      }),
+    ).rejects.toThrow("confirmEvent: event has missing fields");
+    expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+
   it("records one correction containing only changed fields", async () => {
     const farmId = await createFarm(db);
     const proposal = event();
@@ -105,11 +134,37 @@ describe("farm event persistence", () => {
       final,
       decision: "confirm",
     });
+
     const corrections = await db.select().from(eventCorrections);
     expect(corrections).toHaveLength(1);
     expect(corrections[0]?.eventId).toBe(saved.id);
     expect(corrections[0]?.before).toEqual({ field: "Back Field" });
     expect(corrections[0]?.after).toEqual({ field: "North   Field" });
+  });
+
+  it("keeps a completed saved event proposed until confirmation", async () => {
+    const farmId = await createFarm(db);
+    const incomplete = event({
+      field: null,
+      eventDate: null,
+      status: "incomplete",
+      missingFields: ["field", "eventDate"],
+    });
+    const saved = await recordFarmEvent(db, farmId, {
+      proposal: incomplete,
+      final: incomplete,
+      decision: "save_incomplete",
+    });
+    const completed = await correctRecordedEvent(db, farmId, saved.id, {
+      field: "Back Field",
+      eventDate: "2026-10-10",
+    });
+
+    expect(completed.status).toBe("proposed");
+    expect((await listTimeline(db, farmId))[0]?.status).toBe("proposed");
+    expect((await confirmRecordedEvent(db, farmId, saved.id)).status).toBe(
+      "confirmed",
+    );
   });
 
   it("reuses fields by normalized name", async () => {
@@ -183,14 +238,20 @@ describe("farm event persistence", () => {
 
   it("rolls back the event when a later transaction step fails", async () => {
     const farmId = await createFarm(db);
-    const invalid = event({ field: "   " });
+    const proposal = event();
+    const insertCorrection = vi
+      .spyOn(repository, "insertCorrection")
+      .mockRejectedValueOnce(new Error("correction failed"));
     await expect(
       recordFarmEvent(db, farmId, {
-        proposal: invalid,
-        final: invalid,
+        proposal,
+        final: event({ crop: "rice" }),
         decision: "confirm",
       }),
-    ).rejects.toThrow();
+    ).rejects.toThrow("correction failed");
+    expect(insertCorrection).toHaveBeenCalledOnce();
     expect(await listTimeline(db, farmId)).toEqual([]);
+    expect(await db.select().from(fields)).toEqual([]);
+    vi.restoreAllMocks();
   });
 });

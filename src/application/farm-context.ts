@@ -35,6 +35,20 @@ export async function getFarmContext(
   return { farmId: await createFarm(db), isNew: true };
 }
 
+export async function getExistingFarmId(
+  db: Database,
+  request: Request,
+): Promise<string | undefined> {
+  const cookieFarmId = readCookie(request);
+  if (
+    cookieFarmId &&
+    isUuid(cookieFarmId) &&
+    (await findFarm(db, cookieFarmId))
+  )
+    return cookieFarmId;
+  return undefined;
+}
+
 export function farmCookieHeader(farmId: string): string {
   const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   return `${farmCookieName}=${farmId}; HttpOnly; SameSite=Lax; Path=/; Max-Age=31536000${secure}`;

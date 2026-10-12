@@ -28,6 +28,9 @@ export const farmEventStatusSchema = z.enum([
   "rejected",
 ]);
 
+export class LifecycleError extends Error {}
+export class ValidationError extends Error {}
+
 export const farmEventSchema = farmEventCandidateSchema.extend({
   status: farmEventStatusSchema,
   missingFields: z.array(z.string()),
@@ -132,7 +135,9 @@ export function correctEvent(
   },
 ): FarmEvent {
   if (event.status === "rejected") {
-    throw new Error(`correctEvent: cannot edit a ${event.status} event`);
+    throw new LifecycleError(
+      `correctEvent: cannot edit a ${event.status} event`,
+    );
   }
   const normalizedChanges = Object.fromEntries(
     Object.entries(changes).map(([key, value]) => [
@@ -150,30 +155,35 @@ export function correctEvent(
     unit: updated.unit,
   });
   if (!parsed.success) {
-    throw new Error("correctEvent: validation failed");
+    throw new ValidationError("correctEvent: validation failed");
   }
   const { missingFields } = computeMissingFieldsAndStatus(updated);
-  const status = missingFields.length > 0 ? "incomplete" : "corrected";
+  const status =
+    missingFields.length > 0
+      ? "incomplete"
+      : event.status === "confirmed" || event.status === "corrected"
+        ? "corrected"
+        : "proposed";
   return { ...updated, missingFields, status };
 }
 
 // Confirm an event; only allowed from proposed or corrected with no missing fields
 export function confirmEvent(event: FarmEvent): FarmEvent {
   if (event.missingFields.length > 0) {
-    throw new Error("confirmEvent: event has missing fields");
+    throw new LifecycleError("confirmEvent: event has missing fields");
   }
   if (event.status !== "proposed" && event.status !== "corrected") {
-    throw new Error(
+    throw new LifecycleError(
       "confirmEvent: only allowed from proposed or corrected status",
     );
   }
   return { ...event, status: "confirmed" };
 }
 
-// Reject an event; allowed from any non-confirmed status
+// Reject an event; only unconfirmed events may be rejected
 export function rejectEvent(event: FarmEvent): FarmEvent {
-  if (event.status === "confirmed") {
-    throw new Error("rejectEvent: cannot reject a confirmed event");
+  if (event.status === "confirmed" || event.status === "corrected") {
+    throw new LifecycleError("rejectEvent: cannot reject a confirmed event");
   }
 
   return { ...event, status: "rejected" };
