@@ -337,6 +337,16 @@ button:disabled {
   margin: 16px 0 0;
 }
 
+.memory-note {
+  color: #526b5b;
+  font-size: 13px;
+  margin: 16px 0 0;
+}
+
+.memory-note p {
+  margin: 4px 0;
+}
+
 .action-row {
   gap: 10px;
   justify-content: flex-end;

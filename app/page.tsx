@@ -653,6 +653,23 @@ export default function HomePage() {
                       Missing: {farmEvent.missingFields.join(", ")}
                     </p>
                   )}
+                  {farmEvent.resolvedFromMemory &&
+                    farmEvent.resolvedFromMemory.length > 0 && (
+                      <div className="memory-note">
+                        {farmEvent.resolvedFromMemory.map((resolution) => (
+                          <p
+                            key={`${resolution.eventId}-${resolution.field ?? resolution.crop}`}
+                          >
+                            {resolution.field
+                              ? `Field from your ${resolution.activity} record`
+                              : `Crop from your ${resolution.activity} record`}
+                            {resolution.eventDate
+                              ? ` on ${resolution.eventDate}.`
+                              : "."}
+                          </p>
+                        ))}
+                      </div>
+                    )}
                 </>
               )}
 

@@ -223,6 +223,28 @@ describe("farm event persistence", () => {
     expect(row?.memoryEventIds).toEqual([source.id]);
   });
 
+  it("enforces farm memory limits", async () => {
+    const farmId = await createFarm(db);
+    for (let index = 0; index < 21; index += 1) {
+      const day = String((index % 9) + 1).padStart(2, "0");
+      await recordFarmEvent(db, farmId, {
+        proposal: event({
+          field: `Field ${index}`,
+          eventDate: `2026-10-${day}`,
+        }),
+        final: event({
+          field: `Field ${index}`,
+          eventDate: `2026-10-${day}`,
+        }),
+        decision: "confirm",
+      });
+    }
+
+    const memory = await loadFarmMemory(db, farmId, "2026-10-12");
+    expect(memory.fields).toHaveLength(20);
+    expect(memory.recentEvents).toHaveLength(10);
+  });
+
   it("keeps a completed saved event proposed until confirmation", async () => {
     const farmId = await createFarm(db);
     const incomplete = event({
