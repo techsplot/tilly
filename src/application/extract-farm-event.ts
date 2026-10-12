@@ -88,7 +88,19 @@ function applyInteractionPolicy(
         ? `Which field did you mean: ${farmMemory.fields
             .map((field) => field.name)
             .join(" or ")}?`
-        : `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
+        : firstIncompleteEvent.unresolvedReferences?.includes("crop")
+          ? `Which crop did you mean: ${farmMemory.recentEvents
+              .map((event) => event.crop)
+              .filter((crop): crop is string => crop !== null)
+              .filter(
+                (crop, index, crops) =>
+                  crops.findIndex(
+                    (candidate) =>
+                      candidate.toLowerCase() === crop.toLowerCase(),
+                  ) === index,
+              )
+              .join(" or ")}?`
+          : `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
     events,
   };
 }

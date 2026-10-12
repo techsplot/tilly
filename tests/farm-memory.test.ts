@@ -105,4 +105,28 @@ describe("memory reference verification", () => {
     expect(result.event.crop).toBe("maize");
     expect(result.resolvedFromMemory[0]).toMatchObject({ crop: "crop" });
   });
+
+  it("removes a crop when cited events disagree", () => {
+    const result = verifyMemoryReferences(
+      {
+        field: null,
+        crop: "maize",
+        cropSource: "memory",
+        memoryEventIds: [firstEvent.id, "22222222-2222-4222-8222-222222222222"],
+      },
+      {
+        ...memory,
+        recentEvents: [
+          firstEvent,
+          {
+            ...firstEvent,
+            id: "22222222-2222-4222-8222-222222222222",
+            crop: "cassava",
+          },
+        ],
+      },
+    );
+    expect(result.event.crop).toBeNull();
+    expect(result.unresolvedReferences).toContain("crop");
+  });
 });

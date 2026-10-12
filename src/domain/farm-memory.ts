@@ -81,14 +81,17 @@ export function verifyMemoryReferences(
   }
 
   if (event.cropSource === "memory") {
-    const matchingEvent = memory.recentEvents.find(
-      (item) =>
-        memoryEventIds.includes(item.id) &&
-        item.crop !== null &&
-        crop !== null &&
-        item.crop.toLowerCase() === crop.toLowerCase(),
+    const citedCrops = memory.recentEvents.filter(
+      (item) => memoryEventIds.includes(item.id) && item.crop,
     );
-    if (matchingEvent) {
+    const distinctCitedCrops = new Set(
+      citedCrops.map((item) => item.crop!.toLowerCase()),
+    );
+    const matchingEvent = citedCrops.find(
+      (item) =>
+        crop !== null && item.crop!.toLowerCase() === crop.toLowerCase(),
+    );
+    if (matchingEvent && distinctCitedCrops.size === 1) {
       crop = matchingEvent.crop;
       resolvedFromMemory.push({
         crop: "crop",
