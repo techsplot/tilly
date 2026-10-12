@@ -1,0 +1,1 @@
+ALTER TABLE "farm_events" ADD COLUMN "memory_event_ids" uuid[] DEFAULT '{}' NOT NULL;

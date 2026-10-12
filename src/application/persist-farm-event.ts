@@ -10,6 +10,7 @@ import {
 } from "../domain/farm-event";
 import {
   findFarmEvent,
+  findActionableMemoryEventIds,
   insertCorrection,
   insertFarmEvent,
   listFarmEvents as listRows,
@@ -86,7 +87,15 @@ export async function recordFarmEvent(
   input: { proposal: FarmEvent; final: FarmEvent; decision: Decision },
 ): Promise<SavedFarmEvent> {
   return db.transaction(async (tx) => {
-    const final = decisionEvent(input.final, input.decision);
+    const decided = decisionEvent(input.final, input.decision);
+    const final = {
+      ...decided,
+      memoryEventIds: await findActionableMemoryEventIds(
+        tx,
+        farmId,
+        decided.memoryEventIds ?? [],
+      ),
+    } satisfies FarmEvent;
     const field = final.field
       ? await upsertField(tx, farmId, final.field)
       : null;

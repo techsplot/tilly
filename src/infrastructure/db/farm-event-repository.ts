@@ -1,4 +1,4 @@
-import { and, desc, eq, sql } from "drizzle-orm";
+import { and, desc, eq, gte, inArray, lte, sql } from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 import type { FarmEvent } from "../../domain/farm-event";
 import {
@@ -9,6 +9,7 @@ import {
   type FarmEventRow,
 } from "./schema";
 import type * as schema from "./schema";
+import type { MemoryEvent, MemoryField } from "../../domain/farm-memory";
 
 export type Database = PgDatabase<PgQueryResultHKT, typeof schema>;
 
@@ -27,6 +28,7 @@ export function toFarmEvent(row: FarmEventRow): FarmEvent {
     status: row.status,
     missingFields: row.missingFields,
     sourceText: row.sourceText,
+    memoryEventIds: row.memoryEventIds,
   };
 }
 
@@ -102,10 +104,30 @@ export async function insertFarmEvent(
       status: values.final.status,
       missingFields: values.final.missingFields,
       sourceText: values.sourceText,
+      memoryEventIds: values.final.memoryEventIds ?? [],
     })
     .returning();
   if (!row) throw new Error("Farm event could not be saved.");
   return row;
+}
+
+export async function findActionableMemoryEventIds(
+  db: Database,
+  farmId: string,
+  eventIds: string[],
+): Promise<string[]> {
+  if (eventIds.length === 0) return [];
+  const rows = await db
+    .select({ id: farmEvents.id })
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        inArray(farmEvents.id, eventIds),
+        inArray(farmEvents.status, ["confirmed", "corrected"]),
+      ),
+    );
+  return rows.map((row) => row.id);
 }
 
 export async function insertCorrection(
@@ -156,4 +178,59 @@ export async function listFarmEvents(
       desc(farmEvents.createdAt),
     )
     .limit(200);
+}
+
+export async function loadMemoryFields(
+  db: Database,
+  farmId: string,
+): Promise<MemoryField[]> {
+  const rows = await db
+    .select({
+      id: fields.id,
+      name: fields.name,
+      lastUsedAt: sql<Date | null>`max(${farmEvents.createdAt})`,
+    })
+    .from(fields)
+    .innerJoin(
+      farmEvents,
+      and(
+        eq(farmEvents.fieldId, fields.id),
+        eq(farmEvents.farmId, farmId),
+        inArray(farmEvents.status, ["confirmed", "corrected"]),
+      ),
+    )
+    .where(eq(fields.farmId, farmId))
+    .groupBy(fields.id, fields.name)
+    .orderBy(sql`max(${farmEvents.createdAt}) DESC NULLS LAST`, fields.name)
+    .limit(20);
+  return rows.map(({ id, name }) => ({ id, name }));
+}
+
+export async function loadMemoryEvents(
+  db: Database,
+  farmId: string,
+  currentDate: string,
+): Promise<MemoryEvent[]> {
+  const startDate = sql`${currentDate}::date - interval '60 days'`;
+  const endDate = sql`${currentDate}::date`;
+  const rows = await db
+    .select({
+      id: farmEvents.id,
+      activity: farmEvents.activity,
+      crop: farmEvents.crop,
+      field: farmEvents.fieldName,
+      eventDate: farmEvents.eventDate,
+    })
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        inArray(farmEvents.status, ["confirmed", "corrected"]),
+        gte(farmEvents.eventDate, startDate),
+        lte(farmEvents.eventDate, endDate),
+      ),
+    )
+    .orderBy(desc(farmEvents.eventDate), desc(farmEvents.createdAt))
+    .limit(10);
+  return rows;
 }

@@ -22,6 +22,10 @@ application never trusts that output directly:
    on the fields that activity requires.
 3. If a required field is missing, FarmMind asks one clarification question
    instead of guessing.
+4. When a note refers to a confirmed field or crop, the application sends a
+   small farm-memory list to Nemotron. Deterministic verification checks every
+   cited value against that list before the UI explains which record supplied
+   it; invented or ambiguous values become missing and trigger clarification.
 
 ## Current status
 
@@ -37,6 +41,8 @@ Working today:
   decision-time saving, and a Farm history timeline.
 - The server stores the proposal as provided by the browser; later phases can
   add stronger provenance or server-side proposal verification.
+- Phase 4 adds confirmed-history retrieval for contextual references, with
+  deterministic evidence verification and provenance tracking.
 
 Not built yet: reminders, evaluation results, and a hosted demo. The
 [implementation plan](.github/implementation-plan.md) tracks progress phase by
@@ -81,6 +87,8 @@ migrations:
 ```powershell
 pnpm db:migrate
 ```
+
+Run `pnpm db:migrate` again after pulling later schema migrations.
 
 The browser receives an anonymous farm cookie. Clearing browser data starts a
 new farm; there is no login in this phase.
