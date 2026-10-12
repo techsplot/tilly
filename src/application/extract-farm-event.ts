@@ -2,8 +2,10 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { config } from "dotenv";
 import {
+  deriveTimeOfDay,
   farmInteractionSchema,
   getMissingFields,
+  isValidEventTime,
   type FarmEvent,
   type FarmInteraction,
   type FarmInteractionResult,
@@ -36,43 +38,83 @@ Return JSON only with this exact shape:
       "unit": "string or null",
       "fieldSource": "message|memory|null",
       "cropSource": "message|memory|null",
-      "memoryEventIds": ["id"]
+      "memoryEventIds": ["id"],
+      "eventTime": "HH:MM in 24-hour time, or null",
+      "timeOfDay": "morning|afternoon|evening|night or null"
     }
   ],
   "clarificationRequired": "boolean",
   "clarificationQuestion": "string or null",
-  "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null" } } or null,
+  "followUpQuestion": "string or null",
+  "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null", "eventTime": "HH:MM or null" } } or null,
   "skip": "boolean"
 }
 
 Use the current date supplied by the application to resolve relative dates.
-Never invent a crop, field, date, quantity, or unit. If the message is too
-ambiguous to record safely, return no event and ask one concise question.
-If the useful facts are clear but an optional detail is missing, return the
-event with that field set to null and do not ask a question.
+Never invent a crop, field, date, quantity, or unit. The agent saves what the
+farmer said immediately; it does not wait for every detail. Leave any field
+you are not told set to null rather than guessing.
+
+The application, not you, decides whether a question is needed; it looks at
+which important details (date, and crop/field for most activities) are still
+null. Your only job when asked for a question is to write one short, friendly
+sentence in followUpQuestion that acknowledges the note and asks for the
+missing details together, for example "Got it, spraying. Which field was it,
+and was it today?" If the date is one of the missing details, ask about the
+time in the same sentence too (for example "...and when, today this
+morning?"); never ask about the time on its own, since it is optional and
+never required. Always set followUpQuestion to your best such sentence,
+even if you believe nothing is missing; the application ignores it when it
+is not needed.
+
+If the farmer states a specific time ("at 4pm"), set eventTime to that exact
+24-hour time and leave timeOfDay null. If the farmer only gives a vague time
+of day ("this morning", "in the evening") with no exact time, leave eventTime
+null and set timeOfDay to the matching value. Never guess a time that was not
+said.
 
 Clarifications are the farmer's answers and take precedence over the original
 message. If an answer provides a value for a missing field, fill that field.
 If the farmer's answer declines to give the missing detail (for example "I
-don't know" or "skip"), set skip to true and do not guess a value.
+don't know" or "skip"), set skip to true and do not guess a value. If an
+answer instead describes a different, unrelated activity, set intent to
+"record" and events to that new activity only; do not merge it into the
+activity being asked about.
 
 intent is "record" for a farm activity, including an answer to a pending
 question; "correct" when the farmer changes a value of something already
-recorded ("no, it was the north field", "it was yesterday, not today");
-"delete" when the farmer wants the last record removed ("delete that", "that
-was wrong, remove it"); otherwise "other" (questions, reminders, greetings,
-anything else). For "correct", set correction.changes to only the fields the
-farmer wants changed, and leave events empty. For "delete" or "other", leave
-events and correction empty.
+recorded ("no, it was the north field", "it was yesterday, not today", "it
+was in the evening"); "delete" when the farmer wants the last record removed
+("delete that", "that was wrong, remove it"); otherwise "other" (questions,
+reminders, greetings, anything else). For "correct", set correction.changes
+to only the fields the farmer wants changed, and leave events empty. For
+"delete" or "other", leave events and correction empty.
 
 farmMemory is the farmer's own confirmed history. Use it only to resolve
 references in the message such as "that field", "the maize", or "same place
 as last week". Never copy a value from memory unless the message refers to it.
-If a reference could match more than one field or crop, do not choose; leave
-the value null and ask one question naming the options. Cite the memory event
-ids used for each memory-sourced value. Only resolve a field or crop from
-recentEvents, and cite the event ids you used.
+If a reference could match more than one field or crop, leave the value null
+and name the options in followUpQuestion; the application does not block the
+save on this. Cite the memory event ids used for each memory-sourced value.
+Only resolve a field or crop from recentEvents, and cite the event ids you
+used.
 `;
+
+// Finding 17: an invalid model time is dropped, never a 502. When
+// eventTime is present and valid, time_of_day is derived from it and the
+// model's own timeOfDay guess is ignored, so the two can never disagree.
+export function resolveTimeFields(
+  eventTime: string | null,
+  timeOfDay: "morning" | "afternoon" | "evening" | "night" | null,
+): {
+  eventTime: string | null;
+  timeOfDay: "morning" | "afternoon" | "evening" | "night" | null;
+} {
+  if (eventTime !== null && isValidEventTime(eventTime)) {
+    return { eventTime, timeOfDay: deriveTimeOfDay(eventTime) };
+  }
+  return { eventTime: null, timeOfDay };
+}
 
 export function buildMemoryClarificationQuestion(
   kind: "field" | "crop",
@@ -204,6 +246,7 @@ export async function extractFarmEvent(
     return {
       ...event,
       ...verified.event,
+      ...resolveTimeFields(event.eventTime ?? null, event.timeOfDay ?? null),
       resolvedFromMemory: verified.resolvedFromMemory,
       unresolvedReferences: verified.unresolvedReferences,
     };

@@ -181,3 +181,81 @@ describe("farm event extraction memory", () => {
     ).toBe("Which field did you mean: Back Field or River Field?");
   });
 });
+
+describe("time of day extraction (finding 17)", () => {
+  it("sets time_of_day from a qualitative time with no exact time", async () => {
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: "Back Field",
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        eventTime: null,
+        timeOfDay: "morning",
+      }),
+    );
+    const result = await extractFarmEvent("I weeded this morning", "2026-10-12");
+    expect(result.events[0]?.eventTime).toBeNull();
+    expect(result.events[0]?.timeOfDay).toBe("morning");
+  });
+
+  it("derives time_of_day from an exact time and ignores a stale model guess", async () => {
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: "Back Field",
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        eventTime: "16:00",
+        timeOfDay: "morning",
+      }),
+    );
+    const result = await extractFarmEvent("I weeded at 4pm", "2026-10-12");
+    expect(result.events[0]?.eventTime).toBe("16:00");
+    expect(result.events[0]?.timeOfDay).toBe("afternoon");
+  });
+
+  it("drops an invalid model time instead of failing extraction", async () => {
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: "Back Field",
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        eventTime: "4pm",
+        timeOfDay: null,
+      }),
+    );
+    const result = await extractFarmEvent("I weeded at 4pm", "2026-10-12");
+    expect(result.events[0]?.eventTime).toBeNull();
+    expect(result.events[0]?.timeOfDay).toBeNull();
+  });
+
+  it("asks nothing about time when the note has a date but no time", async () => {
+    mockCreate.mockResolvedValueOnce(
+      modelResponse({
+        activity: "weeding",
+        crop: null,
+        field: "Back Field",
+        eventDate: "2026-10-12",
+        quantity: null,
+        unit: null,
+        eventTime: null,
+        timeOfDay: null,
+      }),
+    );
+    const result = await extractFarmEvent(
+      "I weeded the back field today",
+      "2026-10-12",
+    );
+    expect(result.events[0]?.eventTime).toBeNull();
+    expect(result.events[0]?.timeOfDay).toBeNull();
+    expect(result.events[0]?.missingFields).not.toContain("eventTime");
+  });
+});
