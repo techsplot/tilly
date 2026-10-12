@@ -31,18 +31,34 @@ application never trusts that output directly:
 
 Working today:
 
-- a Next.js page where a farmer types a note and sees what FarmMind
-  understood, including missing fields and clarification questions;
-- the `/api/extract-event` route and the `pnpm extract-event` command, both
-  making live Nemotron calls.
-- clarification answers, local event correction, confirmation/rejection
-  transitions, and honest loading/error states.
-- PostgreSQL persistence through Drizzle, browser-scoped anonymous farms,
-  decision-time saving, and a Farm history timeline.
-- The server stores the proposal as provided by the browser; later phases can
-  add stronger provenance or server-side proposal verification.
-- Phase 4 adds confirmed-history retrieval for contextual references, with
-  deterministic evidence verification and provenance tracking.
+- **Agent mode.** A farmer types a message; `POST /api/agent` decides the
+  intent (record, correct, delete, or other) with one Nemotron call, saves a
+  record itself when every required field is present, verified, unambiguous,
+  and not a duplicate, and otherwise asks one question before saving anything.
+  There are no Edit, Confirm, Reject, or Save-for-later buttons.
+- Spoken-style corrections ("no, it was the north field") and deletion
+  ("delete that") apply to the farmer's most recently acted-on record, with a
+  full correction history.
+- One-tap Undo on every reported action (`POST /api/events/[id]/undo`),
+  checked against the record's current state.
+- Deterministic duplicate detection (same farm, activity, field, and event
+  date) asks before recording the same activity twice.
+- "I don't know"/"skip" answers, and a third unresolved clarification round,
+  save the record as `incomplete` instead of asking forever.
+- `saved_by` provenance (`agent` or `farmer`) on every record; Farm history
+  shows a "by FarmMind" label on agent-saved records.
+- A mobile-first interface: a fixed message bar (with a mic button placeholder
+  for Phase 8), an activity feed of what the agent did, and a Farm history tab
+  on mobile / side panel on desktop.
+- PostgreSQL persistence through Drizzle, browser-scoped anonymous farms, and
+  soft delete with a reversible correction trail.
+- Phase 4's confirmed-history retrieval for contextual references, with
+  deterministic evidence verification and provenance tracking, feeds the
+  agent's memory resolution.
+- `/api/extract-event`, `POST /api/events`, and the `confirm`/`reject`/`PATCH`
+  event routes still work and are covered by tests, but the UI no longer calls
+  them; they remain for direct API use (for example the earlier
+  proposal/confirm flow, or scripted access).
 
 Not built yet: reminders, evaluation results, and a hosted demo. The
 [implementation plan](.github/implementation-plan.md) tracks progress phase by
@@ -88,7 +104,8 @@ migrations:
 pnpm db:migrate
 ```
 
-Run `pnpm db:migrate` again after pulling later schema migrations.
+Run `pnpm db:migrate` again after pulling later schema migrations, including
+the Phase 5 migration that adds `saved_by` and `deleted_at` to `farm_events`.
 
 The browser receives an anonymous farm cookie. Clearing browser data starts a
 new farm; there is no login in this phase.
