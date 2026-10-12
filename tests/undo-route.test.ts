@@ -68,6 +68,23 @@ describe("undo route", () => {
       "farm-id",
       eventId,
       "recorded",
+      undefined,
+    );
+  });
+
+  it("passes the correction id for a corrected undo", async () => {
+    mockUndoAgentAction.mockResolvedValue(savedEvent);
+    const response = await request(eventId, {
+      action: "corrected",
+      correctionId: "22222222-2222-4222-8222-222222222222",
+    });
+    expect(response.status).toBe(200);
+    expect(mockUndoAgentAction).toHaveBeenCalledWith(
+      mockDb,
+      "farm-id",
+      eventId,
+      "corrected",
+      "22222222-2222-4222-8222-222222222222",
     );
   });
 

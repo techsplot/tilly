@@ -10,6 +10,7 @@ import { eventErrorResponse } from "../../errors";
 
 const undoRequestSchema = z.object({
   action: z.enum(["recorded", "corrected", "deleted"]),
+  correctionId: z.string().optional(),
 });
 
 export async function POST(
@@ -45,6 +46,7 @@ export async function POST(
       context.farmId,
       id,
       parsed.data.action,
+      parsed.data.correctionId,
     );
     const response = Response.json(saved);
     if (context.isNew)

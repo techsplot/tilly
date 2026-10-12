@@ -49,7 +49,12 @@ export async function PATCH(
     const changes = Object.fromEntries(
       Object.entries(parsed.data).filter(([, value]) => value !== undefined),
     ) as Parameters<typeof correctRecordedEvent>[3];
-    const saved = await correctRecordedEvent(db, context.farmId, id, changes);
+    const { event: saved } = await correctRecordedEvent(
+      db,
+      context.farmId,
+      id,
+      changes,
+    );
     const response = Response.json(saved);
     if (context.isNew)
       response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));

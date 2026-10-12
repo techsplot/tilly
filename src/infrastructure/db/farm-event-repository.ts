@@ -307,8 +307,13 @@ export async function insertCorrection(
   eventId: string,
   before: unknown,
   after: unknown,
-): Promise<void> {
-  await db.insert(eventCorrections).values({ eventId, before, after });
+): Promise<string> {
+  const [row] = await db
+    .insert(eventCorrections)
+    .values({ eventId, before, after })
+    .returning({ id: eventCorrections.id });
+  if (!row) throw new Error("Correction could not be saved.");
+  return row.id;
 }
 
 export async function updateFarmEvent(

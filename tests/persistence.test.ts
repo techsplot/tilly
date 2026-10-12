@@ -15,8 +15,10 @@ import {
   confirmRecordedEvent,
   correctRecordedEvent,
   listTimeline,
+  recordAgentEvent,
   recordFarmEvent,
   rejectRecordedEvent,
+  undoAgentAction,
 } from "../src/application/persist-farm-event";
 import { loadFarmMemory } from "../src/application/farm-memory";
 import * as schema from "../src/infrastructure/db/schema";
@@ -261,10 +263,15 @@ describe("farm event persistence", () => {
       final: incomplete,
       decision: "save_incomplete",
     });
-    const completed = await correctRecordedEvent(db, farmId, saved.id, {
-      field: "Back Field",
-      eventDate: "2026-10-10",
-    });
+    const { event: completed } = await correctRecordedEvent(
+      db,
+      farmId,
+      saved.id,
+      {
+        field: "Back Field",
+        eventDate: "2026-10-10",
+      },
+    );
 
     expect(completed.status).toBe("proposed");
     expect((await listTimeline(db, farmId))[0]?.status).toBe("proposed");
@@ -359,5 +366,109 @@ describe("farm event persistence", () => {
     expect(await listTimeline(db, farmId)).toEqual([]);
     expect(await db.select().from(fields)).toEqual([]);
     vi.restoreAllMocks();
+  });
+});
+
+describe("undo of a correction (finding 4)", () => {
+  let client: PGlite;
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    db = drizzle(client, { schema });
+    await migrate(db, { migrationsFolder: migrationFolder });
+  }, 180000);
+
+  beforeEach(async () => {
+    await db.delete(eventCorrections);
+    await db.delete(schema.farmEvents);
+    await db.delete(fields);
+    await db.delete(farms);
+  }, 30000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  async function saveAgentEvent(farmId: string) {
+    const { event: saved } = await recordAgentEvent(db, farmId, {
+      final: event(),
+      currentDate: "2026-10-10",
+    });
+    return saved;
+  }
+
+  it("correct, delete, undo delete, undo correct all succeed in order", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveAgentEvent(farmId);
+
+    const { correctionId } = await correctRecordedEvent(db, farmId, saved.id, {
+      field: "River Field",
+    });
+    expect(correctionId).not.toBeNull();
+
+    await undoAgentAction(db, farmId, saved.id, "recorded"); // delete
+    await undoAgentAction(db, farmId, saved.id, "deleted"); // undo delete
+
+    const reverted = await undoAgentAction(
+      db,
+      farmId,
+      saved.id,
+      "corrected",
+      correctionId ?? undefined,
+    );
+    expect(reverted.field).toBe("Back Field");
+  });
+
+  it("undoing an earlier correction after a second one fails with 409", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveAgentEvent(farmId);
+
+    const first = await correctRecordedEvent(db, farmId, saved.id, {
+      field: "River Field",
+    });
+    await correctRecordedEvent(db, farmId, saved.id, {
+      field: "North Field",
+    });
+
+    await expect(
+      undoAgentAction(
+        db,
+        farmId,
+        saved.id,
+        "corrected",
+        first.correctionId ?? undefined,
+      ),
+    ).rejects.toThrow("This record changed since; tell me what it should be.");
+  });
+
+  it("undoing the latest correction without a current-value match fails with 409", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveAgentEvent(farmId);
+
+    const first = await correctRecordedEvent(db, farmId, saved.id, {
+      field: "River Field",
+    });
+    // Someone else corrects it again, moving the field away from the
+    // value the first correction's `after` recorded.
+    await correctRecordedEvent(db, farmId, saved.id, {
+      field: "North Field",
+    });
+    // Correcting it right back to "River Field" makes the *values* match
+    // the first correction's `after` again, but it is no longer the
+    // latest correction row.
+    await correctRecordedEvent(db, farmId, saved.id, {
+      field: "River Field",
+    });
+
+    await expect(
+      undoAgentAction(
+        db,
+        farmId,
+        saved.id,
+        "corrected",
+        first.correctionId ?? undefined,
+      ),
+    ).rejects.toThrow("This record changed since; tell me what it should be.");
   });
 });
