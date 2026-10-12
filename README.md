@@ -35,6 +35,8 @@ Working today:
   transitions, and honest loading/error states.
 - PostgreSQL persistence through Drizzle, browser-scoped anonymous farms,
   decision-time saving, and a Farm history timeline.
+- The server stores the proposal as provided by the browser; later phases can
+  add stronger provenance or server-side proposal verification.
 
 Not built yet: reminders, evaluation results, and a hosted demo. The
 [implementation plan](.github/implementation-plan.md) tracks progress phase by

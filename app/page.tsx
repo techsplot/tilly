@@ -28,6 +28,10 @@ function formatStatus(status: FarmEvent["status"]): string {
   }
 }
 
+function formatMissingField(field: string): string {
+  return field === "eventDate" ? "event date" : field;
+}
+
 function getStatusDotClass(isLoading: boolean, error: string | null): string {
   if (error) return "error";
   if (isLoading) return "working";
@@ -276,12 +280,15 @@ export default function HomePage() {
         const hasMissingFields = events.some(
           (farmEvent) => farmEvent.missingFields.length > 0,
         );
+        const firstIncompleteEvent = events.find(
+          (farmEvent) => farmEvent.missingFields.length > 0,
+        );
         return {
           ...prev,
           events,
           clarificationRequired: hasMissingFields,
           clarificationQuestion: hasMissingFields
-            ? prev.clarificationQuestion
+            ? `To complete this ${firstIncompleteEvent?.activity} record, what is the ${formatMissingField(firstIncompleteEvent?.missingFields[0] ?? "detail")}?`
             : null,
         };
       });
@@ -521,7 +528,11 @@ export default function HomePage() {
       {result && result.events.length > 0 && (
         <section className="feedback-card" aria-live="polite">
           <div className="result-heading">
-            <span className="icon-circle">✓</span>
+            <span className="icon-circle">
+              {result.events.some((event) => event.missingFields.length > 0)
+                ? "?"
+                : "✓"}
+            </span>
             <div>
               <p className="eyebrow">
                 {result.events.some((event) => event.missingFields.length > 0)
@@ -652,7 +663,7 @@ export default function HomePage() {
                   onClick={() => startEdit(index)}
                   disabled={isLoading || farmEvent.status === "rejected"}
                 >
-                  {savedIds[index] ? "Edit details" : "Edit details"}
+                  Edit details
                 </button>
                 {farmEvent.missingFields.length > 0 ? (
                   <button
@@ -697,7 +708,8 @@ export default function HomePage() {
                     isLoading ||
                     savingIndex !== null ||
                     farmEvent.status === "rejected" ||
-                    farmEvent.status === "confirmed"
+                    farmEvent.status === "confirmed" ||
+                    farmEvent.status === "corrected"
                   }
                 >
                   {farmEvent.status === "rejected" ? "Rejected" : "Reject"}
