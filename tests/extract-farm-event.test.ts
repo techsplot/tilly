@@ -196,7 +196,10 @@ describe("time of day extraction (finding 17)", () => {
         timeOfDay: "morning",
       }),
     );
-    const result = await extractFarmEvent("I weeded this morning", "2026-10-12");
+    const result = await extractFarmEvent(
+      "I weeded this morning",
+      "2026-10-12",
+    );
     expect(result.events[0]?.eventTime).toBeNull();
     expect(result.events[0]?.timeOfDay).toBe("morning");
   });

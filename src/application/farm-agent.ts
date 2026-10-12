@@ -1,9 +1,9 @@
 import {
-  correctEvent,
+  getImportantMissingDetails,
+  isValidEventTime,
   LifecycleError,
   ValidationError,
   type FarmEvent,
-  type FarmInteractionResult,
 } from "../domain/farm-event";
 import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
@@ -17,19 +17,42 @@ import {
   type UndoableAction,
 } from "./persist-farm-event";
 import {
-  findDuplicateEvent,
   findFirstOwnedActiveEvent,
+  findNudgeCandidate,
+  markNudged,
+  stopNudges,
   toFarmEvent,
-  upsertField,
   type Database,
 } from "../infrastructure/db/farm-event-repository";
 import type { FarmMemory } from "../domain/farm-memory";
 
-export type Pending = {
-  kind: "clarification" | "duplicate";
-  originalMessage: string;
-  clarifications: { question: string; answer: string }[];
-};
+// The partial event known before the agent asked its one question, so the
+// pending note can be saved with gaps (rule 10) without a second model call.
+export type PendingEvent = Pick<
+  FarmEvent,
+  | "activity"
+  | "crop"
+  | "field"
+  | "eventDate"
+  | "quantity"
+  | "unit"
+  | "eventTime"
+  | "timeOfDay"
+  | "sourceText"
+> & { memoryEventIds: string[]; unresolvedReferences: string[] };
+
+export type Pending =
+  | {
+      kind: "clarification";
+      originalMessage: string;
+      event: PendingEvent;
+      question: string;
+      clarifications: { question: string; answer: string }[];
+    }
+  | {
+      kind: "gap";
+      eventId: string;
+    };
 
 export type Change = {
   field: string;
@@ -38,8 +61,13 @@ export type Change = {
 };
 
 export type AgentAction =
-  | { type: "recorded"; event: SavedFarmEvent }
-  | { type: "corrected"; event: SavedFarmEvent; changes: Change[] }
+  | { type: "recorded"; event: SavedFarmEvent; possibleDuplicate?: boolean }
+  | {
+      type: "corrected";
+      event: SavedFarmEvent;
+      changes: Change[];
+      correctionId: string | null;
+    }
   | { type: "deleted"; event: SavedFarmEvent }
   | { type: "question"; text: string; pending: Pending }
   | { type: "reply"; text: string };
@@ -57,6 +85,7 @@ const UNSUPPORTED_REPLY =
   "I can record farm activities for now. Questions and reminders are coming soon.";
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity.";
+const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
 
 export function parseYesNo(message: string): "yes" | "no" | null {
   const normalized = message
@@ -69,21 +98,74 @@ export function parseYesNo(message: string): "yes" | "no" | null {
   return null;
 }
 
-function isQuestionReply(message: string): boolean {
-  const trimmed = message.trim();
-  if (trimmed.endsWith("?")) return true;
-  return /^(what|who|why|when|where|which|how|can|could|do|does|is|are)\b/i.test(
-    trimmed,
-  );
+function isStopNudgeReply(message: string): boolean {
+  const normalized = message.trim().toLowerCase();
+  return /^(stop asking|don'?t know|skip|no\b)/.test(normalized);
 }
 
-function buildDuplicateQuestion(event: FarmEvent, currentDate: string): string {
-  const dateLabel =
-    event.eventDate === currentDate
-      ? "today"
-      : (event.eventDate ?? "that date");
-  const location = event.field ? ` on ${event.field}` : "";
-  return `You already recorded ${event.activity}${location} ${dateLabel}. Record it again?`;
+const detailLabel: Record<string, string> = {
+  eventDate: "when it was",
+  crop: "which crop",
+  field: "which field",
+};
+
+// Finding 9: the application decides when a question is needed and which
+// details to ask about; Nemotron only phrases it. If the model's sentence
+// is missing or empty, fall back to a fixed, deterministic question.
+export function buildFollowUpQuestion(
+  followUpQuestion: string | null | undefined,
+  missingDetails: string[],
+): string {
+  const trimmed = followUpQuestion?.trim();
+  if (trimmed) return trimmed;
+  const phrases = missingDetails.map(
+    (detail) => detailLabel[detail] ?? `which ${detail}`,
+  );
+  const joined =
+    phrases.length <= 1
+      ? (phrases[0] ?? "that")
+      : `${phrases.slice(0, -1).join(", ")} and ${phrases[phrases.length - 1]}`;
+  return `Got it. Can you tell me ${joined}?`;
+}
+
+const activityVerb: Record<FarmEvent["activity"], string> = {
+  planting: "plant",
+  fertilizing: "fertilize",
+  weeding: "weed",
+  spraying: "spray",
+  harvesting: "harvest",
+  inspection: "inspect",
+  irrigation: "irrigate",
+  other: "do",
+};
+
+function formatNudgeDate(isoDate: string | null): string {
+  if (!isoDate) return "that day";
+  const parts = isoDate.split("-").map(Number);
+  const [year, month, day] = parts;
+  if (!year || !month || !day) return isoDate;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+    timeZone: "UTC",
+  });
+}
+
+// Finding 12: fixed wording built from the record; Nemotron never phrases
+// nudges.
+export function buildNudgeQuestion(
+  event: Pick<FarmEvent, "activity" | "eventDate" | "missingFields">,
+): string {
+  const detailFields = event.missingFields.filter(
+    (field) => field !== "eventDate",
+  );
+  const verb = activityVerb[event.activity];
+  if (detailFields.length > 0) {
+    const phrase = detailFields.map((field) => `which ${field}`).join(" and ");
+    return `Quick one: ${phrase} did you ${verb} on ${formatNudgeDate(event.eventDate)}?`;
+  }
+  return `Quick one: when did you ${verb}?`;
 }
 
 async function loadFarmMemoryQuietly(
@@ -99,101 +181,138 @@ async function loadFarmMemoryQuietly(
   }
 }
 
-async function isDuplicateEvent(
+function toPendingEvent(event: FarmEvent): PendingEvent {
+  return {
+    activity: event.activity,
+    crop: event.crop,
+    field: event.field,
+    eventDate: event.eventDate,
+    quantity: event.quantity,
+    unit: event.unit,
+    eventTime: event.eventTime ?? null,
+    timeOfDay: event.timeOfDay ?? null,
+    sourceText: event.sourceText,
+    memoryEventIds: event.memoryEventIds ?? [],
+    unresolvedReferences: event.unresolvedReferences ?? [],
+  };
+}
+
+function pendingEventToFarmEvent(event: PendingEvent): FarmEvent {
+  return {
+    activity: event.activity,
+    crop: event.crop,
+    field: event.field,
+    eventDate: event.eventDate,
+    quantity: event.quantity,
+    unit: event.unit,
+    eventTime: event.eventTime,
+    timeOfDay: event.timeOfDay,
+    status: "confirmed",
+    missingFields: [],
+    sourceText: event.sourceText,
+    memoryEventIds: event.memoryEventIds,
+  };
+}
+
+async function recordedAction(
   db: Database,
   farmId: string,
   event: FarmEvent,
-): Promise<boolean> {
-  const field = event.field ? await upsertField(db, farmId, event.field) : null;
-  const existing = await findDuplicateEvent(db, farmId, {
-    activity: event.activity,
-    eventDate: event.eventDate as string,
-    fieldId: field?.id ?? null,
-  });
-  return Boolean(existing);
+  currentDate: string,
+): Promise<Extract<AgentAction, { type: "recorded" }>> {
+  const { event: saved, possibleDuplicate } = await recordAgentEvent(
+    db,
+    farmId,
+    {
+      final: event,
+      currentDate,
+    },
+  );
+  return possibleDuplicate
+    ? { type: "recorded", event: saved, possibleDuplicate: true }
+    : { type: "recorded", event: saved };
 }
 
+// Finding 1 + 14: every complete event in the note is saved; at most one
+// incomplete event per note is held back for a single question.
 async function applyRecordFlow(
   db: Database,
   farmId: string,
   originalMessage: string,
   currentDate: string,
-  interaction: FarmInteractionResult,
-  clarifications: { question: string; answer: string }[],
-  forceIncomplete: boolean,
+  events: FarmEvent[],
+  followUpQuestion: string | null | undefined,
 ): Promise<AgentAction[]> {
-  const event = interaction.events[0];
-
-  if (!event) {
-    if (
-      interaction.clarificationRequired &&
-      interaction.clarificationQuestion
-    ) {
-      return [
-        {
-          type: "question",
-          text: interaction.clarificationQuestion,
-          pending: { kind: "clarification", originalMessage, clarifications },
-        },
-      ];
-    }
+  if (events.length === 0) {
     return [{ type: "reply", text: UNDERSTOOD_NOTHING_REPLY }];
   }
 
-  const hasIssue = event.missingFields.length > 0;
+  const actions: AgentAction[] = [];
+  let heldBack: FarmEvent | undefined;
 
-  if (hasIssue && !forceIncomplete) {
-    const question =
-      interaction.clarificationQuestion ??
-      `To complete this ${event.activity} record, what is the ${event.missingFields[0]}?`;
-    return [
-      {
-        type: "question",
-        text: question,
-        pending: { kind: "clarification", originalMessage, clarifications },
-      },
-    ];
+  for (const event of events) {
+    const missing = getImportantMissingDetails(
+      event,
+      event.unresolvedReferences ?? [],
+    );
+    if (missing.length === 0 || heldBack) {
+      actions.push(await recordedAction(db, farmId, event, currentDate));
+    } else {
+      heldBack = event;
+    }
   }
 
-  if (hasIssue && forceIncomplete) {
-    const saved = await recordAgentEvent(db, farmId, {
-      final: event,
-      status: "incomplete",
+  if (heldBack) {
+    const missing = getImportantMissingDetails(
+      heldBack,
+      heldBack.unresolvedReferences ?? [],
+    );
+    const question = buildFollowUpQuestion(followUpQuestion, missing);
+    actions.push({
+      type: "question",
+      text: question,
+      pending: {
+        kind: "clarification",
+        originalMessage,
+        event: toPendingEvent(heldBack),
+        question,
+        clarifications: [],
+      },
     });
-    return [{ type: "recorded", event: saved }];
   }
 
-  if (await isDuplicateEvent(db, farmId, event)) {
-    return [
-      {
-        type: "question",
-        text: buildDuplicateQuestion(event, currentDate),
-        pending: { kind: "duplicate", originalMessage, clarifications },
-      },
-    ];
-  }
+  return actions;
+}
 
-  const saved = await recordAgentEvent(db, farmId, {
-    final: event,
-    status: "confirmed",
-  });
-  return [{ type: "recorded", event: saved }];
+function cleanCorrectionChanges(
+  changes: Record<string, unknown> | undefined,
+): Record<string, unknown> {
+  if (!changes) return {};
+  const entries = Object.entries(changes).filter(
+    ([, value]) => value !== undefined,
+  );
+  const result = Object.fromEntries(entries);
+  if (
+    typeof result.eventTime === "string" &&
+    !isValidEventTime(result.eventTime)
+  ) {
+    delete result.eventTime;
+  }
+  return result;
 }
 
 async function applyCorrection(
   db: Database,
   farmId: string,
   message: string,
-  interaction: FarmInteractionResult,
+  currentDate: string,
+  changes: Record<string, unknown>,
   recentEventIds: string[],
 ): Promise<AgentAction[]> {
   const target = await findFirstOwnedActiveEvent(db, farmId, recentEventIds);
   if (!target) return [{ type: "reply", text: NOTHING_TO_TARGET_REPLY }];
 
-  const changes = interaction.correction?.changes ?? {};
-  const cleanChanges = Object.fromEntries(
-    Object.entries(changes).filter(([, value]) => value !== undefined),
-  ) as Parameters<typeof correctEvent>[1];
+  const cleanChanges = cleanCorrectionChanges(changes);
 
   if (Object.keys(cleanChanges).length === 0) {
     return [
@@ -203,6 +322,8 @@ async function applyCorrection(
         pending: {
           kind: "clarification",
           originalMessage: message,
+          event: toPendingEvent(toFarmEvent(target)),
+          question: "What should I change it to?",
           clarifications: [],
         },
       },
@@ -211,11 +332,12 @@ async function applyCorrection(
 
   try {
     const before = toFarmEvent(target);
-    const saved = await correctRecordedEvent(
+    const { event: saved, correctionId } = await correctRecordedEvent(
       db,
       farmId,
       target.id,
-      cleanChanges,
+      cleanChanges as Parameters<typeof correctRecordedEvent>[3],
+      currentDate,
     );
     const changeList: Change[] = Object.entries(
       changedFields(before, saved)?.after ?? {},
@@ -224,7 +346,9 @@ async function applyCorrection(
       before: before[field as keyof FarmEvent],
       after: saved[field as keyof FarmEvent],
     }));
-    return [{ type: "corrected", event: saved, changes: changeList }];
+    return [
+      { type: "corrected", event: saved, changes: changeList, correctionId },
+    ];
   } catch (error) {
     if (error instanceof ValidationError || error instanceof LifecycleError) {
       return [
@@ -234,6 +358,8 @@ async function applyCorrection(
           pending: {
             kind: "clarification",
             originalMessage: message,
+            event: toPendingEvent(toFarmEvent(target)),
+            question: "What should I change it to?",
             clarifications: [],
           },
         },
@@ -259,102 +385,217 @@ async function applyDelete(
   return [{ type: "deleted", event: deleted }];
 }
 
-async function handlePendingDuplicate(
+async function routeInteraction(
   db: Database,
   farmId: string,
   message: string,
   currentDate: string,
-  pending: Pending,
+  interaction: {
+    intent: string;
+    events: FarmEvent[];
+    followUpQuestion?: string | null | undefined;
+    correction?: { changes: Record<string, unknown> } | null | undefined;
+  },
+  recentEventIds: string[],
 ): Promise<AgentAction[]> {
-  const deterministic = parseYesNo(message);
-  const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
-  const interaction = await extractFarmEvent(
-    pending.originalMessage,
+  if (interaction.intent === "correct")
+    return applyCorrection(
+      db,
+      farmId,
+      message,
+      currentDate,
+      interaction.correction?.changes ?? {},
+      recentEventIds,
+    );
+  if (interaction.intent === "delete")
+    return applyDelete(db, farmId, recentEventIds);
+  if (interaction.intent === "other")
+    return [{ type: "reply", text: UNSUPPORTED_REPLY }];
+  return applyRecordFlow(
+    db,
+    farmId,
+    message,
     currentDate,
-    pending.clarifications,
-    memory,
+    interaction.events,
+    interaction.followUpQuestion,
   );
-  const confirmed =
-    deterministic === "yes"
-      ? true
-      : deterministic === "no"
-        ? false
-        : interaction.intent === "record";
-
-  if (!confirmed) {
-    return [{ type: "reply", text: "OK, nothing new recorded." }];
-  }
-
-  const event = interaction.events[0];
-  if (!event || event.missingFields.length > 0) {
-    const question =
-      interaction.clarificationQuestion ??
-      "Can you tell me more about that activity?";
-    return [
-      {
-        type: "question",
-        text: question,
-        pending: {
-          kind: "clarification",
-          originalMessage: pending.originalMessage,
-          clarifications: pending.clarifications,
-        },
-      },
-    ];
-  }
-
-  const saved = await recordAgentEvent(db, farmId, {
-    final: event,
-    status: "confirmed",
-  });
-  return [{ type: "recorded", event: saved }];
 }
 
+// Finding 2 + 10: the server, not the browser, owns merging the answer
+// into the conversation, and the next message always ends the pending
+// note — either by answering it (save at once with whatever is known) or
+// by turning out to be something else entirely (save the pending note
+// with gaps first, then handle the new message normally). Finding 3: no
+// isQuestionReply short-circuit; extraction decides.
 async function handlePendingClarification(
   db: Database,
   farmId: string,
   message: string,
   currentDate: string,
-  pending: Pending,
+  pending: Extract<Pending, { kind: "clarification" }>,
   recentEventIds: string[],
 ): Promise<AgentAction[]> {
-  if (isQuestionReply(message)) {
-    const lastQuestion = pending.clarifications.at(-1)?.question;
-    return [
-      {
-        type: "question",
-        text: lastQuestion ?? "Can you clarify?",
-        pending,
-      },
-    ];
-  }
-
+  const clarifications = [
+    ...pending.clarifications,
+    { question: pending.question, answer: message },
+  ];
   const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
   const interaction = await extractFarmEvent(
     pending.originalMessage,
     currentDate,
-    pending.clarifications,
+    clarifications,
     memory,
   );
 
-  if (interaction.intent === "correct")
-    return applyCorrection(db, farmId, message, interaction, recentEventIds);
-  if (interaction.intent === "delete")
-    return applyDelete(db, farmId, recentEventIds);
-  if (interaction.intent === "other")
-    return [{ type: "reply", text: UNSUPPORTED_REPLY }];
+  const sameNoteAnswer =
+    interaction.intent === "record" &&
+    interaction.events[0]?.activity === pending.event.activity;
 
-  const skip = interaction.skip === true;
-  const atLimit = pending.clarifications.length >= 3;
+  if (sameNoteAnswer) {
+    const merged =
+      interaction.events[0] ?? pendingEventToFarmEvent(pending.event);
+    return [await recordedAction(db, farmId, merged, currentDate)];
+  }
 
-  return applyRecordFlow(
+  // End the pending note first, with whatever was known before this reply.
+  const ended = await recordedAction(
     db,
     farmId,
-    pending.originalMessage,
+    pendingEventToFarmEvent(pending.event),
+    currentDate,
+  );
+  const extendedRecentIds = [ended.event.id, ...recentEventIds];
+
+  if (interaction.intent === "correct")
+    return [
+      ended,
+      ...(await applyCorrection(
+        db,
+        farmId,
+        message,
+        currentDate,
+        interaction.correction?.changes ?? {},
+        extendedRecentIds,
+      )),
+    ];
+  if (interaction.intent === "delete")
+    return [ended, ...(await applyDelete(db, farmId, extendedRecentIds))];
+  if (interaction.intent === "other")
+    return [ended, { type: "reply", text: UNSUPPORTED_REPLY }];
+  return [
+    ended,
+    ...(await applyRecordFlow(
+      db,
+      farmId,
+      message,
+      currentDate,
+      interaction.events,
+      interaction.followUpQuestion,
+    )),
+  ];
+}
+
+function buildGapCorrectionChanges(
+  target: FarmEvent,
+  answered: FarmEvent,
+): Record<string, unknown> {
+  const changes: Record<string, unknown> = {};
+  if (target.missingFields.includes("crop") && answered.crop)
+    changes.crop = answered.crop;
+  if (target.missingFields.includes("field") && answered.field)
+    changes.field = answered.field;
+  if (target.missingFields.includes("eventDate") && answered.eventDate)
+    changes.eventDate = answered.eventDate;
+  return changes;
+}
+
+// Finding 12: the nudge's answer is applied as a normal correction to the
+// targeted record. An unrelated message leaves the nudge unanswered and is
+// handled normally.
+async function handleGapAnswer(
+  db: Database,
+  farmId: string,
+  message: string,
+  currentDate: string,
+  pending: Extract<Pending, { kind: "gap" }>,
+  recentEventIds: string[],
+): Promise<AgentAction[]> {
+  if (isStopNudgeReply(message)) {
+    await stopNudges(db, farmId, pending.eventId);
+    return [{ type: "reply", text: STOP_NUDGE_REPLY }];
+  }
+
+  const target = await findFirstOwnedActiveEvent(db, farmId, [pending.eventId]);
+  if (!target) {
+    return handleNewMessage(db, farmId, message, currentDate, recentEventIds);
+  }
+  const targetEvent = toFarmEvent(target);
+  const question = buildNudgeQuestion(targetEvent);
+  const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
+  const interaction = await extractFarmEvent(
+    question,
+    currentDate,
+    [{ question, answer: message }],
+    memory,
+  );
+
+  const answered = interaction.events[0];
+  const changes =
+    interaction.intent === "record" && answered
+      ? buildGapCorrectionChanges(targetEvent, answered)
+      : {};
+
+  if (Object.keys(changes).length === 0) {
+    return routeInteraction(
+      db,
+      farmId,
+      message,
+      currentDate,
+      interaction,
+      recentEventIds,
+    );
+  }
+
+  const { event: saved, correctionId } = await correctRecordedEvent(
+    db,
+    farmId,
+    pending.eventId,
+    changes as Parameters<typeof correctRecordedEvent>[3],
+    currentDate,
+  );
+  const changeList: Change[] = Object.entries(
+    changedFields(targetEvent, saved)?.after ?? {},
+  ).map(([field]) => ({
+    field,
+    before: targetEvent[field as keyof FarmEvent],
+    after: saved[field as keyof FarmEvent],
+  }));
+  return [
+    { type: "corrected", event: saved, changes: changeList, correctionId },
+  ];
+}
+
+async function handleNewMessage(
+  db: Database,
+  farmId: string,
+  message: string,
+  currentDate: string,
+  recentEventIds: string[],
+): Promise<AgentAction[]> {
+  const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
+  const interaction = await extractFarmEvent(
+    message,
+    currentDate,
+    undefined,
+    memory,
+  );
+  return routeInteraction(
+    db,
+    farmId,
+    message,
     currentDate,
     interaction,
-    pending.clarifications,
-    skip || atLimit,
+    recentEventIds,
   );
 }
 
@@ -365,13 +606,14 @@ export async function handleFarmerMessage(
 ): Promise<AgentAction[]> {
   const recentEventIds = input.recentEventIds.filter(isUuid);
 
-  if (input.pending?.kind === "duplicate") {
-    return handlePendingDuplicate(
+  if (input.pending?.kind === "gap") {
+    return handleGapAnswer(
       db,
       farmId,
       input.message,
       input.currentDate,
       input.pending,
+      recentEventIds,
     );
   }
   if (input.pending?.kind === "clarification") {
@@ -385,35 +627,12 @@ export async function handleFarmerMessage(
     );
   }
 
-  const memory = await loadFarmMemoryQuietly(db, farmId, input.currentDate);
-  const interaction = await extractFarmEvent(
-    input.message,
-    input.currentDate,
-    undefined,
-    memory,
-  );
-
-  if (interaction.intent === "correct")
-    return applyCorrection(
-      db,
-      farmId,
-      input.message,
-      interaction,
-      recentEventIds,
-    );
-  if (interaction.intent === "delete")
-    return applyDelete(db, farmId, recentEventIds);
-  if (interaction.intent === "other")
-    return [{ type: "reply", text: UNSUPPORTED_REPLY }];
-
-  return applyRecordFlow(
+  return handleNewMessage(
     db,
     farmId,
     input.message,
     input.currentDate,
-    interaction,
-    [],
-    false,
+    recentEventIds,
   );
 }
 
@@ -422,6 +641,24 @@ export async function undoAgentAction(
   farmId: string,
   eventId: string,
   action: UndoableAction,
+  correctionId?: string,
 ): Promise<SavedFarmEvent> {
-  return undoAgentActionPersisted(db, farmId, eventId, action);
+  return undoAgentActionPersisted(db, farmId, eventId, action, correctionId);
+}
+
+// Finding 12: at most one gap reminder, built from fixed wording.
+export async function getNudge(
+  db: Database,
+  farmId: string,
+): Promise<Extract<AgentAction, { type: "question" }> | null> {
+  const candidate = await findNudgeCandidate(db, farmId);
+  if (!candidate) return null;
+  await markNudged(db, candidate.id);
+  const event = toFarmEvent(candidate);
+  const text = buildNudgeQuestion(event);
+  return {
+    type: "question",
+    text,
+    pending: { kind: "gap", eventId: candidate.id },
+  };
 }

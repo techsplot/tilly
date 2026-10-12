@@ -46,7 +46,7 @@ Return JSON only with this exact shape:
   "clarificationRequired": "boolean",
   "clarificationQuestion": "string or null",
   "followUpQuestion": "string or null",
-  "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null", "eventTime": "HH:MM or null" } } or null,
+  "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null", "eventTime": "HH:MM or null", "timeOfDay": "morning|afternoon|evening|night or null" } } or null,
   "skip": "boolean"
 }
 

@@ -20,9 +20,16 @@ vi.mock("../src/infrastructure/nebius/nebius-client", () => ({
   getNebiusModel: vi.fn(() => "test-model"),
 }));
 
-import { handleFarmerMessage } from "../src/application/farm-agent";
+import {
+  buildFollowUpQuestion,
+  buildNudgeQuestion,
+  getNudge,
+  handleFarmerMessage,
+  type Pending,
+} from "../src/application/farm-agent";
 import {
   listTimeline,
+  recordAgentEvent,
   recordFarmEvent,
 } from "../src/application/persist-farm-event";
 import { loadFarmMemory } from "../src/application/farm-memory";
@@ -54,7 +61,7 @@ function proposal(
 }
 
 function modelResponse(
-  event: Record<string, unknown> | null,
+  events: Record<string, unknown>[],
   extra: Record<string, unknown> = {},
 ) {
   return {
@@ -62,9 +69,10 @@ function modelResponse(
       {
         message: {
           content: JSON.stringify({
-            events: event ? [event] : [],
+            events,
             clarificationRequired: false,
             clarificationQuestion: null,
+            followUpQuestion: null,
             ...extra,
           }),
         },
@@ -79,6 +87,18 @@ function completeEvent(overrides: Record<string, unknown> = {}) {
     crop: "maize",
     field: "Back Field",
     eventDate: "2026-10-12",
+    quantity: null,
+    unit: null,
+    ...overrides,
+  };
+}
+
+function sprayEvent(overrides: Record<string, unknown> = {}) {
+  return {
+    activity: "spraying",
+    crop: "maize",
+    field: null,
+    eventDate: null,
     quantity: null,
     unit: null,
     ...overrides,
@@ -107,9 +127,9 @@ describe("farm agent service", () => {
     await client.close();
   });
 
-  it("saves a complete note as confirmed, saved_by agent", async () => {
+  it("saves a complete note as confirmed, saved_by agent, no question", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse(completeEvent()));
+    mockCreate.mockResolvedValueOnce(modelResponse([completeEvent()]));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "I weeded the back field today",
@@ -122,6 +142,7 @@ describe("farm agent service", () => {
     if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(actions[0].event.status).toBe("confirmed");
     expect(actions[0].event.savedBy).toBe("agent");
+    expect(actions[0].event.missingFields).toEqual([]);
 
     const [row] = await db
       .select()
@@ -131,14 +152,14 @@ describe("farm agent service", () => {
     expect(row?.status).toBe("confirmed");
   });
 
-  it("asks a question for a missing field and saves nothing; the answer then saves it", async () => {
+  it("asks one question mentioning both missing details, then saves with the given detail and date_assumed (finding 8, 9, 11)", async () => {
     const farmId = await createFarm(db);
     mockCreate.mockResolvedValueOnce(
-      modelResponse(completeEvent({ field: null })),
+      modelResponse([sprayEvent()], { followUpQuestion: null }),
     );
 
     const first = await handleFarmerMessage(db, farmId, {
-      message: "I weeded today",
+      message: "I sprayed",
       currentDate: "2026-10-12",
       recentEventIds: [],
     });
@@ -147,24 +168,168 @@ describe("farm agent service", () => {
     expect(first[0]?.type).toBe("question");
     if (first[0]?.type !== "question") throw new Error("expected question");
     expect(first[0].text).toContain("field");
+    expect(first[0].text).toContain("when");
     expect(await listTimeline(db, farmId)).toEqual([]);
 
-    mockCreate.mockResolvedValueOnce(modelResponse(completeEvent()));
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent({ field: "Back Field" })]),
+    );
     const second = await handleFarmerMessage(db, farmId, {
       message: "Back Field",
       currentDate: "2026-10-12",
-      pending: {
-        kind: "clarification",
-        originalMessage: "I weeded today",
-        clarifications: [{ question: first[0].text, answer: "Back Field" }],
-      },
+      pending: first[0].pending,
       recentEventIds: [],
     });
 
+    expect(second).toHaveLength(1);
+    expect(second[0]?.type).toBe("recorded");
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.field).toBe("Back Field");
+    expect(second[0].event.eventDate).toBe("2026-10-12");
+    expect(second[0].event.dateAssumed).toBe(true);
+    expect(second[0].event.missingFields).toContain("eventDate");
+    expect(second[0].event.status).toBe("confirmed");
+
+    const request = mockCreate.mock.calls[1]![0];
+    const body = JSON.parse(request.messages[1].content);
+    expect(body.clarifications).toEqual([
+      { question: first[0].text, answer: "Back Field" },
+    ]);
+  });
+
+  it("'I don't know' to the question saves with gaps and asks nothing again (finding 10)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent()], { skip: true }),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I don't know",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toHaveLength(1);
+    expect(second[0]?.type).toBe("recorded");
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.field).toBeNull();
+    expect(second[0].event.missingFields).toContain("field");
+    expect(second[0].event.status).toBe("confirmed");
+  });
+
+  it("a question-like reply saves with gaps instead of asking again (finding 3, 10)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent({ eventDate: "2026-10-12" })]),
+    );
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent({ eventDate: "2026-10-12" })]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "why do you need that?",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(second).toHaveLength(1);
     expect(second[0]?.type).toBe("recorded");
   });
 
-  it("asks a question for an unresolved memory reference and saves nothing", async () => {
+  it("saves a note with two complete activities as two recorded actions (finding 1, 14)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ activity: "weeding" }),
+        completeEvent({ activity: "spraying", field: "River Field" }),
+      ]),
+    );
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I weeded and sprayed today",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions).toHaveLength(2);
+    expect(actions[0]?.type).toBe("recorded");
+    expect(actions[1]?.type).toBe("recorded");
+    expect(await listTimeline(db, farmId)).toHaveLength(2);
+  });
+
+  it("saves the complete activity and asks about the incomplete one (finding 1, 14)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ activity: "weeding" }),
+        sprayEvent({ eventDate: "2026-10-12" }),
+      ]),
+    );
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the back field and sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions).toHaveLength(2);
+    expect(actions[0]?.type).toBe("recorded");
+    expect(actions[1]?.type).toBe("question");
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+  });
+
+  it("ends a pending note with gaps when the next message is a different note (finding 10)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ activity: "weeding", field: "River Field" }),
+      ]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I also weeded the river field",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toHaveLength(2);
+    expect(second[0]?.type).toBe("recorded");
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.activity).toBe("spraying");
+    expect(second[0].event.missingFields).toEqual(
+      expect.arrayContaining(["field", "eventDate"]),
+    );
+    expect(second[1]?.type).toBe("recorded");
+    if (second[1]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[1].event.activity).toBe("weeding");
+    expect(await listTimeline(db, farmId)).toHaveLength(2);
+  });
+
+  it("asks a question for an unresolved memory reference (finding 8)", async () => {
     const farmId = await createFarm(db);
     await recordFarmEvent(db, farmId, {
       proposal: proposal({ field: "Back Field" }),
@@ -179,14 +344,14 @@ describe("farm agent service", () => {
     const memory = await loadFarmMemory(db, farmId, "2026-10-13");
 
     mockCreate.mockResolvedValueOnce(
-      modelResponse(
+      modelResponse([
         completeEvent({
           field: "Back Field",
           eventDate: "2026-10-13",
           fieldSource: "memory",
           memoryEventIds: [memory.recentEvents[0]!.id],
         }),
-      ),
+      ]),
     );
 
     const actions = await handleFarmerMessage(db, farmId, {
@@ -200,76 +365,7 @@ describe("farm agent service", () => {
     expect(timeline).toHaveLength(2);
   });
 
-  it("saves incomplete when the farmer skips a missing detail", async () => {
-    const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(
-      modelResponse(completeEvent({ field: null }), { skip: true }),
-    );
-
-    const actions = await handleFarmerMessage(db, farmId, {
-      message: "I don't know",
-      currentDate: "2026-10-12",
-      pending: {
-        kind: "clarification",
-        originalMessage: "I weeded today",
-        clarifications: [{ question: "Which field?", answer: "I don't know" }],
-      },
-      recentEventIds: [],
-    });
-
-    expect(actions[0]?.type).toBe("recorded");
-    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
-    expect(actions[0].event.status).toBe("incomplete");
-  });
-
-  it("saves incomplete after the third clarification even without skip", async () => {
-    const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(
-      modelResponse(completeEvent({ field: null })),
-    );
-
-    const actions = await handleFarmerMessage(db, farmId, {
-      message: "still not sure",
-      currentDate: "2026-10-12",
-      pending: {
-        kind: "clarification",
-        originalMessage: "I weeded today",
-        clarifications: [
-          { question: "Which field?", answer: "maybe the back one" },
-          { question: "Which field?", answer: "not sure" },
-          { question: "Which field?", answer: "still not sure" },
-        ],
-      },
-      recentEventIds: [],
-    });
-
-    expect(actions[0]?.type).toBe("recorded");
-    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
-    expect(actions[0].event.status).toBe("incomplete");
-  });
-
-  it("asks again without calling the model when the answer is itself a question", async () => {
-    const farmId = await createFarm(db);
-
-    const actions = await handleFarmerMessage(db, farmId, {
-      message: "which field do you mean?",
-      currentDate: "2026-10-12",
-      pending: {
-        kind: "clarification",
-        originalMessage: "I weeded today",
-        clarifications: [{ question: "Which field?", answer: "" }],
-      },
-      recentEventIds: [],
-    });
-
-    expect(mockCreate).not.toHaveBeenCalled();
-    expect(actions[0]).toMatchObject({
-      type: "question",
-      text: "Which field?",
-    });
-  });
-
-  it("asks before saving a duplicate, then 'yes' saves and 'no' saves nothing", async () => {
+  it("saves a repeat and flags it instead of asking (finding 13)", async () => {
     const farmId = await createFarm(db);
     await recordFarmEvent(db, farmId, {
       proposal: proposal(),
@@ -277,47 +373,30 @@ describe("farm agent service", () => {
       decision: "confirm",
     });
 
-    mockCreate.mockResolvedValueOnce(modelResponse(completeEvent()));
-    const asked = await handleFarmerMessage(db, farmId, {
+    mockCreate.mockResolvedValueOnce(modelResponse([completeEvent()]));
+    const actions = await handleFarmerMessage(db, farmId, {
       message: "I weeded the back field today",
       currentDate: "2026-10-12",
       recentEventIds: [],
     });
-    expect(asked[0]?.type).toBe("question");
-    if (asked[0]?.type !== "question") throw new Error("expected question");
-    expect(asked[0].text).toContain("already recorded");
 
-    mockCreate.mockResolvedValueOnce(modelResponse(completeEvent()));
-    const no = await handleFarmerMessage(db, farmId, {
-      message: "no",
-      currentDate: "2026-10-12",
-      pending: asked[0].pending,
-      recentEventIds: [],
+    expect(actions).toHaveLength(1);
+    expect(actions[0]).toMatchObject({
+      type: "recorded",
+      possibleDuplicate: true,
     });
-    expect(no[0]).toEqual({ type: "reply", text: "OK, nothing new recorded." });
-    expect(await listTimeline(db, farmId)).toHaveLength(1);
-
-    mockCreate.mockResolvedValueOnce(modelResponse(completeEvent()));
-    const yes = await handleFarmerMessage(db, farmId, {
-      message: "yes",
-      currentDate: "2026-10-12",
-      pending: asked[0].pending,
-      recentEventIds: [],
-    });
-    expect(yes[0]?.type).toBe("recorded");
     expect(await listTimeline(db, farmId)).toHaveLength(2);
   });
 
   it("corrects the most recent session record and reports before/after", async () => {
     const farmId = await createFarm(db);
-    const saved = await recordFarmEvent(db, farmId, {
-      proposal: proposal(),
+    const { event: saved } = await recordAgentEvent(db, farmId, {
       final: proposal(),
-      decision: "confirm",
+      currentDate: "2026-10-12",
     });
 
     mockCreate.mockResolvedValueOnce(
-      modelResponse(null, {
+      modelResponse([], {
         intent: "correct",
         correction: { changes: { field: "River Field" } },
       }),
@@ -332,9 +411,11 @@ describe("farm agent service", () => {
     expect(actions[0]?.type).toBe("corrected");
     if (actions[0]?.type !== "corrected") throw new Error("expected corrected");
     expect(actions[0].event.field).toBe("River Field");
+    expect(actions[0].event.status).toBe("corrected");
     expect(actions[0].changes).toEqual([
       { field: "field", before: "Back Field", after: "River Field" },
     ]);
+    expect(actions[0].correctionId).not.toBeNull();
 
     const corrections = await db.select().from(eventCorrections);
     expect(corrections).toHaveLength(1);
@@ -343,7 +424,7 @@ describe("farm agent service", () => {
   it("replies without changing anything when correct has no valid recent id", async () => {
     const farmId = await createFarm(db);
     mockCreate.mockResolvedValueOnce(
-      modelResponse(null, {
+      modelResponse([], {
         intent: "correct",
         correction: { changes: { field: "River Field" } },
       }),
@@ -363,7 +444,7 @@ describe("farm agent service", () => {
 
   it("replies without changing anything when delete has no valid recent id", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse(null, { intent: "delete" }));
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "delete" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "delete that",
@@ -379,12 +460,11 @@ describe("farm agent service", () => {
 
   it("soft-deletes the target record, removing it from the timeline and memory", async () => {
     const farmId = await createFarm(db);
-    const saved = await recordFarmEvent(db, farmId, {
-      proposal: proposal(),
+    const { event: saved } = await recordAgentEvent(db, farmId, {
       final: proposal(),
-      decision: "confirm",
+      currentDate: "2026-10-12",
     });
-    mockCreate.mockResolvedValueOnce(modelResponse(null, { intent: "delete" }));
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "delete" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "delete that",
@@ -403,7 +483,7 @@ describe("farm agent service", () => {
 
   it("replies and saves nothing for an unsupported intent", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse(null, { intent: "other" }));
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "hello",
@@ -446,5 +526,173 @@ describe("farm agent service", () => {
       }),
     ).rejects.toThrow();
     expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+});
+
+describe("gap reminders (finding 12)", () => {
+  let client: PGlite;
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    db = drizzle(client, { schema });
+    await migrate(db, { migrationsFolder: migrationFolder });
+  }, 180000);
+
+  beforeEach(async () => {
+    mockCreate.mockReset();
+    await db.delete(eventCorrections);
+    await db.delete(schema.farmEvents);
+    await db.delete(schema.fields);
+    await db.delete(schema.farms);
+  }, 30000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  async function saveGappyEvent(farmId: string) {
+    const { event } = await recordAgentEvent(db, farmId, {
+      final: {
+        activity: "spraying",
+        crop: "maize",
+        field: null,
+        eventDate: "2026-10-10",
+        quantity: null,
+        unit: null,
+        status: "confirmed",
+        missingFields: [],
+        sourceText: "I sprayed",
+      },
+      currentDate: "2026-10-10",
+    });
+    return event;
+  }
+
+  it("returns nothing when there is no gap to ask about", async () => {
+    const farmId = await createFarm(db);
+    expect(await getNudge(db, farmId)).toBeNull();
+  });
+
+  it("returns at most one record, naming the actual gap", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+
+    const nudge = await getNudge(db, farmId);
+    expect(nudge).not.toBeNull();
+    expect(nudge?.pending).toEqual({ kind: "gap", eventId: saved.id });
+    expect(nudge?.text).toContain("field");
+  });
+
+  it("skips a record nudged within the last 24 hours", async () => {
+    const farmId = await createFarm(db);
+    await saveGappyEvent(farmId);
+    const first = await getNudge(db, farmId);
+    expect(first).not.toBeNull();
+
+    expect(await getNudge(db, farmId)).toBeNull();
+  });
+
+  it("surfaces the record again after 24 hours", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    await getNudge(db, farmId);
+    await db
+      .update(farmEvents)
+      .set({ lastNudgedAt: new Date(Date.now() - 25 * 60 * 60 * 1000) })
+      .where(eq(farmEvents.id, saved.id));
+
+    const nudge = await getNudge(db, farmId);
+    expect(nudge?.pending).toEqual({ kind: "gap", eventId: saved.id });
+  });
+
+  it("skips a deleted record and another farm's record", async () => {
+    const farmId = await createFarm(db);
+    const otherFarmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    await saveGappyEvent(otherFarmId);
+    await db
+      .update(farmEvents)
+      .set({ deletedAt: new Date() })
+      .where(eq(farmEvents.id, saved.id));
+
+    expect(await getNudge(db, farmId)).toBeNull();
+  });
+
+  it("answering a nudge corrects the record and clears the gap", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    const pending: Pending = { kind: "gap", eventId: saved.id };
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        sprayEvent({ field: "Back Field", eventDate: "2026-10-10" }),
+      ]),
+    );
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "Back Field",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.type).toBe("corrected");
+    if (actions[0]?.type !== "corrected") throw new Error("expected corrected");
+    expect(actions[0].event.field).toBe("Back Field");
+    expect(actions[0].event.missingFields).toEqual([]);
+  });
+
+  it("'stop asking' stops the nudge without a model call", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    const pending: Pending = { kind: "gap", eventId: saved.id };
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "stop asking",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(actions).toEqual([
+      { type: "reply", text: "OK, I won't ask about that again." },
+    ]);
+
+    const [row] = await db
+      .select()
+      .from(farmEvents)
+      .where(eq(farmEvents.id, saved.id));
+    expect(row?.nudgesStopped).toBe(true);
+    expect(await getNudge(db, farmId)).toBeNull();
+  });
+});
+
+describe("question phrasing helpers", () => {
+  it("builds a fallback question covering all missing details", () => {
+    expect(buildFollowUpQuestion(null, ["eventDate", "field"])).toBe(
+      "Got it. Can you tell me when it was and which field?",
+    );
+    expect(buildFollowUpQuestion("  ", ["crop"])).toBe(
+      "Got it. Can you tell me which crop?",
+    );
+  });
+
+  it("prefers the model's phrasing when present", () => {
+    expect(
+      buildFollowUpQuestion("Got it, spraying. Which field was it?", ["field"]),
+    ).toBe("Got it, spraying. Which field was it?");
+  });
+
+  it("builds fixed nudge wording from the record", () => {
+    expect(
+      buildNudgeQuestion({
+        activity: "spraying",
+        eventDate: "2026-10-10",
+        missingFields: ["field"],
+      }),
+    ).toBe("Quick one: which field did you spray on 10 Oct?");
   });
 });

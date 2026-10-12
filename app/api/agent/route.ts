@@ -4,25 +4,55 @@ import {
   farmCookieHeader,
 } from "@/src/application/farm-context";
 import { handleFarmerMessage } from "@/src/application/farm-agent";
+import {
+  farmActivitySchema,
+  farmTimeOfDaySchema,
+} from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
 import { agentErrorResponse } from "./errors";
 
-const pendingSchema = z.object({
-  kind: z.enum(["clarification", "duplicate"]),
-  originalMessage: z
-    .string()
-    .trim()
-    .min(1, "Message cannot be empty")
-    .max(1000, "Message must be 1000 characters or less"),
-  clarifications: z
-    .array(
-      z.object({
-        question: z.string().trim().min(1, "Question cannot be empty"),
-        answer: z.string().trim().min(1, "Answer cannot be empty"),
-      }),
-    )
-    .max(3, "Maximum 3 clarifications allowed"),
+const clarificationsSchema = z
+  .array(
+    z.object({
+      question: z.string().trim().min(1, "Question cannot be empty"),
+      answer: z.string().trim().min(1, "Answer cannot be empty"),
+    }),
+  )
+  .max(3, "Maximum 3 clarifications allowed");
+
+// Mirrors the PendingEvent kept server-side; the client sends it back
+// exactly as received (finding 2), never touching it.
+const pendingEventSchema = z.object({
+  activity: farmActivitySchema,
+  crop: z.string().nullable(),
+  field: z.string().nullable(),
+  eventDate: z.string().nullable(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+  eventTime: z.string().nullable(),
+  timeOfDay: farmTimeOfDaySchema.nullable(),
+  sourceText: z.string(),
+  memoryEventIds: z.array(z.string()),
+  unresolvedReferences: z.array(z.string()),
 });
+
+const pendingSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("clarification"),
+    originalMessage: z
+      .string()
+      .trim()
+      .min(1, "Message cannot be empty")
+      .max(1000, "Message must be 1000 characters or less"),
+    event: pendingEventSchema,
+    question: z.string().trim().min(1, "Question cannot be empty"),
+    clarifications: clarificationsSchema,
+  }),
+  z.object({
+    kind: z.literal("gap"),
+    eventId: z.string(),
+  }),
+]);
 
 const agentRequestSchema = z.object({
   message: z

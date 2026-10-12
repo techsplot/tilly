@@ -86,6 +86,7 @@ export const correctionChangesSchema = z.object({
   quantity: z.number().nullable().optional(),
   unit: z.string().nullable().optional(),
   eventTime: eventTimeSchema.optional(),
+  timeOfDay: farmTimeOfDaySchema.nullable().optional(),
 });
 
 export const farmInteractionSchema = z
@@ -300,8 +301,11 @@ export function correctAgentEvent(
       `correctAgentEvent: cannot edit a ${event.status} event`,
     );
   }
-  const { eventTime: rawEventTime, timeOfDay: rawTimeOfDay, ...valueChanges } =
-    changes;
+  const {
+    eventTime: rawEventTime,
+    timeOfDay: rawTimeOfDay,
+    ...valueChanges
+  } = changes;
   const normalizedChanges = Object.fromEntries(
     Object.entries(valueChanges).map(([key, value]) => [
       key,

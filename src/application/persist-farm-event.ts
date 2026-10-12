@@ -16,7 +16,6 @@ import {
   findFarmEvent,
   findFarmEventAny,
   findFieldByNormalizedName,
-  findLatestCorrection,
   findLatestFieldCorrection,
   insertCorrection,
   insertFarmEvent,

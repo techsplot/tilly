@@ -268,19 +268,6 @@ export async function restoreFarmEvent(
   return row;
 }
 
-export async function findLatestCorrection(
-  db: Database,
-  eventId: string,
-): Promise<EventCorrectionRow | undefined> {
-  const [row] = await db
-    .select()
-    .from(eventCorrections)
-    .where(eq(eventCorrections.eventId, eventId))
-    .orderBy(desc(eventCorrections.createdAt))
-    .limit(1);
-  return row;
-}
-
 // Delete and restore also write event_corrections rows ({ deleted: ... }),
 // so undoing a value correction must look only at the latest row that
 // changed actual field values, ignoring those (finding 4).
