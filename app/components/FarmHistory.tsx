@@ -2,6 +2,17 @@
 
 import type { SavedFarmEvent } from "@/app/hooks/useFarmAgent";
 
+function formatDateTime(event: SavedFarmEvent): string {
+  const date = event.eventDate
+    ? event.dateAssumed
+      ? "today"
+      : event.eventDate
+    : "Date missing";
+  if (event.eventTime) return `${date} ${event.eventTime.slice(0, 5)}`;
+  if (event.timeOfDay) return `${date}, ${event.timeOfDay}`;
+  return date;
+}
+
 function formatStatus(status: SavedFarmEvent["status"]): string {
   switch (status) {
     case "incomplete":
@@ -49,7 +60,7 @@ export default function FarmHistory({
               <div>
                 <strong>{savedEvent.activity}</strong>
                 <p>
-                  {savedEvent.eventDate ?? "Date missing"} ·{" "}
+                  {formatDateTime(savedEvent)} ·{" "}
                   {savedEvent.crop ?? "Crop missing"} ·{" "}
                   {savedEvent.field ?? "Field missing"}
                 </p>

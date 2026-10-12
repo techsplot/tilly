@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { farmEventSchema } from "@/src/domain/farm-event";
 
@@ -15,20 +15,46 @@ const changeSchema = z.object({
   after: z.unknown(),
 });
 
-const pendingSchema = z.object({
-  kind: z.enum(["clarification", "duplicate"]),
-  originalMessage: z.string(),
-  clarifications: z.array(
-    z.object({ question: z.string(), answer: z.string() }),
-  ),
+// Mirrors the server's PendingEvent exactly; the browser sends it back
+// unchanged, never touching it (finding 2).
+const pendingEventSchema = z.object({
+  activity: z.string(),
+  crop: z.string().nullable(),
+  field: z.string().nullable(),
+  eventDate: z.string().nullable(),
+  quantity: z.number().nullable(),
+  unit: z.string().nullable(),
+  eventTime: z.string().nullable(),
+  timeOfDay: z.string().nullable(),
+  sourceText: z.string(),
+  memoryEventIds: z.array(z.string()),
+  unresolvedReferences: z.array(z.string()),
 });
 
+const pendingSchema = z.discriminatedUnion("kind", [
+  z.object({
+    kind: z.literal("clarification"),
+    originalMessage: z.string(),
+    event: pendingEventSchema,
+    question: z.string(),
+    clarifications: z.array(
+      z.object({ question: z.string(), answer: z.string() }),
+    ),
+  }),
+  z.object({ kind: z.literal("gap"), eventId: z.string() }),
+]);
+
 const agentActionSchema = z.discriminatedUnion("type", [
-  z.object({ type: z.literal("recorded"), event: savedFarmEventSchema }),
+  z.object({
+    type: z.literal("recorded"),
+    event: savedFarmEventSchema,
+    possibleDuplicate: z.boolean().optional(),
+  }),
   z.object({
     type: z.literal("corrected"),
     event: savedFarmEventSchema,
     changes: z.array(changeSchema),
+    correctionId: z.string().nullable(),
   }),
   z.object({ type: z.literal("deleted"), event: savedFarmEventSchema }),
   z.object({
@@ -40,6 +66,7 @@ const agentActionSchema = z.discriminatedUnion("type", [
 ]);
 
 const agentResponseSchema = z.object({ actions: z.array(agentActionSchema) });
+const nudgeResponseSchema = z.object({ action: agentActionSchema.nullable() });
 
 export type SavedFarmEvent = z.infer<typeof savedFarmEventSchema>;
 export type Pending = z.infer<typeof pendingSchema>;
@@ -81,6 +108,12 @@ function isUndoable(action: AgentAction): action is UndoableAgentAction {
   );
 }
 
+function undoRequestBody(action: UndoableAgentAction): Record<string, unknown> {
+  return action.type === "corrected"
+    ? { action: action.type, correctionId: action.correctionId ?? undefined }
+    : { action: action.type };
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
@@ -108,6 +141,7 @@ export function useFarmAgent() {
   const [error, setError] = useState<string | null>(null);
   const [history, setHistory] = useState<SavedFarmEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
+  const nudgeOfferedRef = useRef(false);
 
   const refreshHistory = useCallback(async () => {
     setHistoryLoading(true);
@@ -136,6 +170,36 @@ export function useFarmAgent() {
     void refreshHistory();
   }, [refreshHistory]);
 
+  // Finding 12: offer at most one gap reminder per session, on load and
+  // after a saved record, as long as nothing is already pending.
+  const offerNudge = useCallback(async () => {
+    if (nudgeOfferedRef.current || pending) return;
+    try {
+      const response = await fetch("/api/agent/nudge");
+      if (!response.ok) return;
+      const body: unknown = await response.json();
+      const parsed = nudgeResponseSchema.safeParse(body);
+      if (!parsed.success || !parsed.data.action) return;
+      nudgeOfferedRef.current = true;
+      const action = parsed.data.action;
+      if (action.type !== "question") return;
+      setFeed((prev) => [
+        ...prev,
+        { id: newId(), kind: "action", action, undone: false, undoing: false },
+      ]);
+      setPending(action.pending);
+      setLastQuestionText(action.text);
+    } catch {
+      // A missed nudge is not worth surfacing as an error.
+    }
+  }, [pending]);
+
+  // Only ever offered once per session on load; later calls happen
+  // explicitly after a save.
+  useEffect(() => {
+    void offerNudge();
+  }, [offerNudge]);
+
   const sendMessage = useCallback(
     async (message: string) => {
       const trimmed = message.trim();
@@ -148,17 +212,6 @@ export function useFarmAgent() {
       setIsLoading(true);
       setError(null);
 
-      const pendingToSend: Pending | undefined =
-        pending?.kind === "clarification"
-          ? {
-              ...pending,
-              clarifications: [
-                ...pending.clarifications,
-                { question: lastQuestionText ?? "", answer: trimmed },
-              ],
-            }
-          : pending;
-
       try {
         const response = await fetch("/api/agent", {
           method: "POST",
@@ -166,7 +219,7 @@ export function useFarmAgent() {
           body: JSON.stringify({
             message: trimmed,
             currentDate: getLocalDateString(),
-            pending: pendingToSend,
+            pending,
             recentEventIds,
           }),
         });
@@ -210,6 +263,7 @@ export function useFarmAgent() {
 
         if (actions.some((action) => action.type !== "question")) {
           await refreshHistory();
+          if (!question) await offerNudge();
         }
       } catch (caughtError) {
         setError(
@@ -221,7 +275,7 @@ export function useFarmAgent() {
         setIsLoading(false);
       }
     },
-    [isLoading, pending, lastQuestionText, recentEventIds, refreshHistory],
+    [isLoading, pending, recentEventIds, refreshHistory, offerNudge],
   );
 
   const undo = useCallback(
@@ -237,7 +291,7 @@ export function useFarmAgent() {
         const response = await fetch(`/api/events/${action.event.id}/undo`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action: action.type }),
+          body: JSON.stringify(undoRequestBody(action)),
         });
         if (!response.ok) throw new Error(await readErrorMessage(response));
         setFeed((prev) =>

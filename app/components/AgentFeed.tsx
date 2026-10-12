@@ -20,7 +20,10 @@ function formatDate(isoDate: string | null): string {
 }
 
 function formatFieldLabel(field: string): string {
-  return field === "eventDate" ? "event date" : field;
+  if (field === "eventDate") return "event date";
+  if (field === "eventTime") return "time";
+  if (field === "timeOfDay") return "time of day";
+  return field;
 }
 
 function formatValue(value: unknown): string {
@@ -28,14 +31,33 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
+function dateLabel(event: SavedFarmEvent): string {
+  if (!event.eventDate) return "no date";
+  return event.dateAssumed ? "today" : formatDate(event.eventDate);
+}
+
+function dateTimeLabel(event: SavedFarmEvent): string {
+  const date = dateLabel(event);
+  if (event.eventTime) return `${date} ${event.eventTime.slice(0, 5)}`;
+  if (event.timeOfDay) return `${date}, ${event.timeOfDay}`;
+  return date;
+}
+
+// Finding 11: records save with gaps rather than blocking on them, so the
+// receipt names what was not mentioned instead of hiding missing details.
+function gapNote(missingFields: string[]): string {
+  if (missingFields.length === 0) return "";
+  const labels = missingFields.map((field) =>
+    field === "eventDate" ? "date" : field,
+  );
+  return ` (${labels.join(", ")} not given)`;
+}
+
 function recordedSummary(event: SavedFarmEvent): string {
-  if (event.status === "incomplete") {
-    const field = event.missingFields[0]
-      ? formatFieldLabel(event.missingFields[0])
-      : "detail";
-    return `Saved without the ${field}. You can tell me later.`;
-  }
-  return `Recorded: ${event.activity} · ${event.field ?? "no field"} · ${formatDate(event.eventDate)}`;
+  const segments: string[] = [event.activity];
+  if (event.field) segments.push(event.field);
+  segments.push(dateTimeLabel(event));
+  return `Recorded: ${segments.join(" · ")}${gapNote(event.missingFields)}`;
 }
 
 function correctedSummary(
@@ -80,10 +102,11 @@ function ActionCard({
     );
   }
 
-  const isIncomplete =
-    action.type === "recorded" && action.event.status === "incomplete";
-  const summary =
-    action.type === "recorded"
+  const isDuplicate =
+    action.type === "recorded" && action.possibleDuplicate === true;
+  const summary = isDuplicate
+    ? "Looks like a repeat."
+    : action.type === "recorded"
       ? recordedSummary(action.event)
       : action.type === "corrected"
         ? correctedSummary(action)
@@ -91,7 +114,7 @@ function ActionCard({
 
   return (
     <article className={`feed-card feed-${action.type}`}>
-      <span className="feed-icon">{isIncomplete ? "~" : "✓"}</span>
+      <span className="feed-icon">✓</span>
       <div>
         <p>{summary}</p>
         {action.event.resolvedFromMemory &&
