@@ -31,6 +31,9 @@ export function toFarmEvent(row: FarmEventRow): FarmEvent {
     missingFields: row.missingFields,
     sourceText: row.sourceText,
     memoryEventIds: row.memoryEventIds,
+    dateAssumed: row.dateAssumed,
+    eventTime: row.eventTime,
+    timeOfDay: row.timeOfDay,
   };
 }
 
@@ -134,6 +137,27 @@ export async function findDuplicateEvent(
   return row;
 }
 
+// Lookup-only: never creates a field. Used by duplicate detection so
+// checking for a duplicate never has the side effect of saving a field
+// the agent then asks a question about and saves nothing (finding 5).
+export async function findFieldByNormalizedName(
+  db: Database,
+  farmId: string,
+  name: string,
+): Promise<{ id: string } | null> {
+  const [field] = await db
+    .select({ id: fields.id })
+    .from(fields)
+    .where(
+      and(
+        eq(fields.farmId, farmId),
+        eq(fields.normalizedName, normalizeFieldName(name)),
+      ),
+    )
+    .limit(1);
+  return field ?? null;
+}
+
 export async function upsertField(
   db: Database,
   farmId: string,
@@ -181,6 +205,9 @@ export async function insertFarmEvent(
       sourceText: values.sourceText,
       memoryEventIds: values.final.memoryEventIds ?? [],
       savedBy: values.savedBy,
+      dateAssumed: values.final.dateAssumed ?? false,
+      eventTime: values.final.eventTime ?? null,
+      timeOfDay: values.final.timeOfDay ?? null,
     })
     .returning();
   if (!row) throw new Error("Farm event could not be saved.");
@@ -254,6 +281,27 @@ export async function findLatestCorrection(
   return row;
 }
 
+// Delete and restore also write event_corrections rows ({ deleted: ... }),
+// so undoing a value correction must look only at the latest row that
+// changed actual field values, ignoring those (finding 4).
+export async function findLatestFieldCorrection(
+  db: Database,
+  eventId: string,
+): Promise<EventCorrectionRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(eventCorrections)
+    .where(
+      and(
+        eq(eventCorrections.eventId, eventId),
+        sql`not (${eventCorrections.after} ? 'deleted')`,
+      ),
+    )
+    .orderBy(desc(eventCorrections.createdAt))
+    .limit(1);
+  return row;
+}
+
 export async function insertCorrection(
   db: Database,
   eventId: string,
@@ -281,6 +329,9 @@ export async function updateFarmEvent(
       unit: event.unit,
       status: event.status,
       missingFields: event.missingFields,
+      dateAssumed: event.dateAssumed ?? false,
+      eventTime: event.eventTime ?? null,
+      timeOfDay: event.timeOfDay ?? null,
       updatedAt: new Date(),
     })
     .where(activeEventFilter(farmId, eventId))
@@ -359,4 +410,50 @@ export async function loadMemoryEvents(
     .orderBy(desc(farmEvents.eventDate), desc(farmEvents.createdAt))
     .limit(10);
   return rows;
+}
+
+// Finding 12: at most one gap reminder, for the most recent agent-saved
+// record with a gap that has not been nudged in the last 24 hours and is
+// not snoozed.
+export async function findNudgeCandidate(
+  db: Database,
+  farmId: string,
+): Promise<FarmEventRow | undefined> {
+  const [row] = await db
+    .select()
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        eq(farmEvents.savedBy, "agent"),
+        eq(farmEvents.nudgesStopped, false),
+        isNull(farmEvents.deletedAt),
+        sql`array_length(${farmEvents.missingFields}, 1) > 0`,
+        sql`(${farmEvents.lastNudgedAt} is null or ${farmEvents.lastNudgedAt} < now() - interval '24 hours')`,
+      ),
+    )
+    .orderBy(
+      sql`${farmEvents.eventDate} DESC NULLS LAST`,
+      desc(farmEvents.createdAt),
+    )
+    .limit(1);
+  return row;
+}
+
+export async function markNudged(db: Database, eventId: string): Promise<void> {
+  await db
+    .update(farmEvents)
+    .set({ lastNudgedAt: new Date() })
+    .where(eq(farmEvents.id, eventId));
+}
+
+export async function stopNudges(
+  db: Database,
+  farmId: string,
+  eventId: string,
+): Promise<void> {
+  await db
+    .update(farmEvents)
+    .set({ nudgesStopped: true })
+    .where(and(eq(farmEvents.farmId, farmId), eq(farmEvents.id, eventId)));
 }
