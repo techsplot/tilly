@@ -6,10 +6,14 @@ import {
   farmInteractionSchema,
   farmInteractionResultSchema,
   correctEvent,
+  correctAgentEvent,
   confirmEvent,
   rejectEvent,
   farmRequestSchema,
   isActionable,
+  getImportantMissingDetails,
+  deriveTimeOfDay,
+  isValidEventTime,
 } from "../src/domain/farm-event";
 
 describe("farm interaction schema", () => {
@@ -797,5 +801,176 @@ describe("agent intent schema", () => {
     if (result.success) {
       expect(result.data.skip).toBe(true);
     }
+  });
+});
+
+describe("important missing details (finding 8)", () => {
+  it("requires only the activity for 'other'", () => {
+    expect(
+      getImportantMissingDetails({
+        activity: "other",
+        crop: null,
+        field: null,
+        eventDate: "2026-10-12",
+      }),
+    ).toEqual([]);
+  });
+
+  it("requires crop and field for spraying, and the date always", () => {
+    expect(
+      getImportantMissingDetails({
+        activity: "spraying",
+        crop: null,
+        field: null,
+        eventDate: null,
+      }),
+    ).toEqual(["eventDate", "crop", "field"]);
+  });
+
+  it("requires only field for inspection and irrigation", () => {
+    expect(
+      getImportantMissingDetails({
+        activity: "inspection",
+        crop: null,
+        field: null,
+        eventDate: "2026-10-12",
+      }),
+    ).toEqual(["field"]);
+  });
+
+  it("treats an unresolved memory reference as important", () => {
+    expect(
+      getImportantMissingDetails(
+        {
+          activity: "weeding",
+          crop: "maize",
+          field: "Back Field",
+          eventDate: "2026-10-12",
+        },
+        ["field"],
+      ),
+    ).toEqual(["field"]);
+  });
+
+  it("returns nothing when every important detail is present", () => {
+    expect(
+      getImportantMissingDetails({
+        activity: "weeding",
+        crop: "maize",
+        field: "Back Field",
+        eventDate: "2026-10-12",
+      }),
+    ).toEqual([]);
+  });
+});
+
+describe("time of day (finding 17)", () => {
+  it("validates strict HH:MM", () => {
+    expect(isValidEventTime("16:00")).toBe(true);
+    expect(isValidEventTime("4pm")).toBe(false);
+    expect(isValidEventTime("24:00")).toBe(false);
+    expect(isValidEventTime("09:60")).toBe(false);
+  });
+
+  it("derives the boundary buckets", () => {
+    expect(deriveTimeOfDay("05:00")).toBe("morning");
+    expect(deriveTimeOfDay("11:59")).toBe("morning");
+    expect(deriveTimeOfDay("12:00")).toBe("afternoon");
+    expect(deriveTimeOfDay("16:59")).toBe("afternoon");
+    expect(deriveTimeOfDay("17:00")).toBe("evening");
+    expect(deriveTimeOfDay("20:59")).toBe("evening");
+    expect(deriveTimeOfDay("21:00")).toBe("night");
+    expect(deriveTimeOfDay("04:59")).toBe("night");
+  });
+});
+
+describe("correctAgentEvent (finding 11)", () => {
+  const makeAgentEvent = (
+    overrides: Partial<{
+      crop: string | null;
+      field: string | null;
+      eventDate: string | null;
+      dateAssumed: boolean;
+      eventTime: string | null;
+      timeOfDay: "morning" | "afternoon" | "evening" | "night" | null;
+      missingFields: string[];
+      status: "confirmed" | "corrected" | "rejected";
+    }> = {},
+  ) => ({
+    activity: "spraying" as const,
+    crop: "maize",
+    field: "Back Field",
+    eventDate: "2026-10-12",
+    quantity: null,
+    unit: null,
+    status: "confirmed" as const,
+    missingFields: [] as string[],
+    sourceText: "I sprayed the back field today",
+    dateAssumed: false,
+    eventTime: null,
+    timeOfDay: null,
+    ...overrides,
+  });
+
+  it("a gap never demotes the record to incomplete", () => {
+    const result = correctAgentEvent(
+      makeAgentEvent({ field: "River Field" }),
+      { crop: null },
+      "2026-10-12",
+    );
+    expect(result.status).toBe("corrected");
+    expect(result.missingFields).toEqual(["crop"]);
+  });
+
+  it("a correction to the date clears date_assumed", () => {
+    const assumed = makeAgentEvent({ dateAssumed: true });
+    const result = correctAgentEvent(
+      assumed,
+      { eventDate: "2026-10-10" },
+      "2026-10-12",
+    );
+    expect(result.dateAssumed).toBe(false);
+    expect(result.missingFields).toEqual([]);
+  });
+
+  it("clearing the date re-assumes the current date", () => {
+    const result = correctAgentEvent(
+      makeAgentEvent(),
+      { eventDate: null },
+      "2026-10-15",
+    );
+    expect(result.eventDate).toBe("2026-10-15");
+    expect(result.dateAssumed).toBe(true);
+    expect(result.missingFields).toEqual(["eventDate"]);
+  });
+
+  it("accepts an explicit time and derives time_of_day, ignoring any stale value", () => {
+    const result = correctAgentEvent(
+      makeAgentEvent({ timeOfDay: "morning" }),
+      { eventTime: "16:00" },
+      "2026-10-12",
+    );
+    expect(result.eventTime).toBe("16:00");
+    expect(result.timeOfDay).toBe("afternoon");
+  });
+
+  it("accepts a qualitative time of day with no exact time", () => {
+    const result = correctAgentEvent(
+      makeAgentEvent(),
+      { timeOfDay: "evening" },
+      "2026-10-12",
+    );
+    expect(result.eventTime).toBeNull();
+    expect(result.timeOfDay).toBe("evening");
+  });
+
+  it("refuses to edit a rejected event", () => {
+    expect(() =>
+      correctAgentEvent(
+        makeAgentEvent({ status: "rejected" as never }),
+        { crop: "rice" },
+        "2026-10-12",
+      ),
+    ).toThrow("correctAgentEvent: cannot edit a rejected event");
   });
 });
