@@ -31,20 +31,39 @@ application never trusts that output directly:
 
 Working today:
 
-- **Agent mode.** A farmer types a message; `POST /api/agent` decides the
-  intent (record, correct, delete, or other) with one Nemotron call, saves a
-  record itself when every required field is present, verified, unambiguous,
-  and not a duplicate, and otherwise asks one question before saving anything.
-  There are no Edit, Confirm, Reject, or Save-for-later buttons.
+- **Agent mode: save first, ask almost never.** A farmer types a message;
+  `POST /api/agent` decides the intent (record, correct, delete, or other)
+  with one Nemotron call. Only the activity is required to save — crop,
+  field, and a specific time are kept when said and left empty when not,
+  and a missing date is assumed to be today. The record saves at once as
+  `confirmed`, and the receipt names any gap ("Recorded: spraying · today
+  (field not given)"). There are no Edit, Confirm, Reject, or Save-for-later
+  buttons.
+- **One question, at most, per note.** The agent asks only when an
+  "important" detail (the date always; crop/field for most activities; an
+  ambiguous memory reference) is missing, in a single question covering
+  everything missing at once — phrased by Nemotron, with a fixed fallback
+  if it leaves the phrasing blank. The next message always ends that
+  question: it either answers it (merged and saved at once, gaps and all)
+  or turns out to be a new note, in which case the pending one is saved
+  with its gaps first. A farmer can correct a gap at any time by saying so.
+- **Gap reminders.** `GET /api/agent/nudge` surfaces at most one light
+  reminder per session for an agent-saved record with a gap, using fixed
+  wording, no more than once every 24 hours; answering it corrects that
+  record, and "stop asking" silences it for good.
 - Spoken-style corrections ("no, it was the north field") and deletion
   ("delete that") apply to the farmer's most recently acted-on record, with a
   full correction history.
 - One-tap Undo on every reported action (`POST /api/events/[id]/undo`),
-  checked against the record's current state.
+  checked against the record's current state; undoing a correction targets
+  the specific correction that produced the record's current values, not
+  just "the latest row".
 - Deterministic duplicate detection (same farm, activity, field, and event
-  date) asks before recording the same activity twice.
-- "I don't know"/"skip" answers, and a third unresolved clarification round,
-  save the record as `incomplete` instead of asking forever.
+  date) saves a likely repeat and flags it ("Looks like a repeat. Undo?")
+  instead of asking first.
+- Optional time of day: a stated time ("at 4pm") or a vague one ("this
+  morning") is kept and shown in receipts and history; time is never a gap
+  and never nudged about.
 - `saved_by` provenance (`agent` or `farmer`) on every record; Farm history
   shows a "by FarmMind" label on agent-saved records.
 - A mobile-first interface: a fixed message bar (with a mic button placeholder
@@ -58,11 +77,15 @@ Working today:
 - `/api/extract-event`, `POST /api/events`, and the `confirm`/`reject`/`PATCH`
   event routes still work and are covered by tests, but the UI no longer calls
   them; they remain for direct API use (for example the earlier
-  proposal/confirm flow, or scripted access).
+  proposal/confirm flow, or scripted access). They keep the older, blocking
+  required-field policy; only agent mode follows the save-first rules above.
+- Run `pnpm db:migrate` after pulling to apply the `date_assumed`,
+  `event_time`/`time_of_day`, and `last_nudged_at`/`nudges_stopped` columns.
 
-Not built yet: reminders, evaluation results, and a hosted demo. The
-[implementation plan](.github/implementation-plan.md) tracks progress phase by
-phase.
+Not built yet: reminders delivered outside the app (Phase 9), evaluation
+results, and a hosted demo. Report and ask (the two other core verbs) land in
+Phase 6. The [implementation plan](.github/implementation-plan.md) tracks
+progress phase by phase.
 
 ## Prerequisites
 
