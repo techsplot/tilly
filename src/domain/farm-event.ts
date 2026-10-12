@@ -52,11 +52,32 @@ export const farmEventSchema = farmEventCandidateSchema.extend({
   unresolvedReferences: z.array(z.string()).optional(),
 });
 
+export const agentIntentSchema = z.enum([
+  "record",
+  "correct",
+  "delete",
+  "other",
+]);
+
+export const correctionChangesSchema = z.object({
+  crop: z.string().trim().min(1).nullable().optional(),
+  field: z.string().trim().min(1).nullable().optional(),
+  eventDate: z.iso.date().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  unit: z.string().nullable().optional(),
+});
+
 export const farmInteractionSchema = z
   .object({
+    intent: agentIntentSchema.optional().default("record"),
     events: z.array(farmEventCandidateSchema),
     clarificationRequired: z.boolean(),
     clarificationQuestion: z.string().nullable(),
+    correction: z
+      .object({ changes: correctionChangesSchema })
+      .nullable()
+      .optional(),
+    skip: z.boolean().optional().default(false),
   })
   .refine(
     (data) => {
@@ -77,9 +98,15 @@ export const farmInteractionSchema = z
 
 export const farmInteractionResultSchema = z
   .object({
+    intent: agentIntentSchema.optional().default("record"),
     events: z.array(farmEventSchema),
     clarificationRequired: z.boolean(),
     clarificationQuestion: z.string().nullable(),
+    correction: z
+      .object({ changes: correctionChangesSchema })
+      .nullable()
+      .optional(),
+    skip: z.boolean().optional().default(false),
   })
   .refine(
     (data) => {

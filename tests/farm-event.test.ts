@@ -736,3 +736,66 @@ describe("clarification flow in extractFarmEvent", () => {
     }
   });
 });
+
+describe("agent intent schema", () => {
+  it("defaults intent to record and skip to false for an older-style response", () => {
+    const result = farmInteractionSchema.safeParse({
+      events: [],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.intent).toBe("record");
+      expect(result.data.skip).toBe(false);
+      expect(result.data.correction).toBeUndefined();
+    }
+  });
+
+  it("accepts a correct intent with change fields", () => {
+    const result = farmInteractionSchema.safeParse({
+      intent: "correct",
+      events: [],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+      correction: { changes: { field: "Back Field" } },
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.correction?.changes.field).toBe("Back Field");
+    }
+  });
+
+  it("accepts a delete intent", () => {
+    const result = farmInteractionSchema.safeParse({
+      intent: "delete",
+      events: [],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects an unknown intent", () => {
+    const result = farmInteractionSchema.safeParse({
+      intent: "made_up",
+      events: [],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it("accepts skip true on an answer that declines a missing detail", () => {
+    const result = farmInteractionSchema.safeParse({
+      events: [],
+      clarificationRequired: false,
+      clarificationQuestion: null,
+      skip: true,
+    });
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.skip).toBe(true);
+    }
+  });
+});

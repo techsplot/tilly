@@ -374,9 +374,12 @@ export default function HomePage() {
 
   function openHistoryEvent(savedEvent: SavedFarmEvent) {
     setResult({
+      intent: "record",
       events: [savedEvent],
       clarificationRequired: false,
       clarificationQuestion: null,
+      correction: null,
+      skip: false,
     });
     setProposalEvents([savedEvent]);
     setSavedIds({ 0: savedEvent.id });

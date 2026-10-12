@@ -25,6 +25,7 @@ You extract farm activities from a farmer's message.
 
 Return JSON only with this exact shape:
 {
+  "intent": "record|correct|delete|other",
   "events": [
     {
       "activity": "planting|fertilizing|weeding|spraying|harvesting|inspection|irrigation|other",
@@ -39,7 +40,9 @@ Return JSON only with this exact shape:
     }
   ],
   "clarificationRequired": "boolean",
-  "clarificationQuestion": "string or null"
+  "clarificationQuestion": "string or null",
+  "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null" } } or null,
+  "skip": "boolean"
 }
 
 Use the current date supplied by the application to resolve relative dates.
@@ -50,6 +53,17 @@ event with that field set to null and do not ask a question.
 
 Clarifications are the farmer's answers and take precedence over the original
 message. If an answer provides a value for a missing field, fill that field.
+If the farmer's answer declines to give the missing detail (for example "I
+don't know" or "skip"), set skip to true and do not guess a value.
+
+intent is "record" for a farm activity, including an answer to a pending
+question; "correct" when the farmer changes a value of something already
+recorded ("no, it was the north field", "it was yesterday, not today");
+"delete" when the farmer wants the last record removed ("delete that", "that
+was wrong, remove it"); otherwise "other" (questions, reminders, greetings,
+anything else). For "correct", set correction.changes to only the fields the
+farmer wants changed, and leave events empty. For "delete" or "other", leave
+events and correction empty.
 
 farmMemory is the farmer's own confirmed history. Use it only to resolve
 references in the message such as "that field", "the maize", or "same place
