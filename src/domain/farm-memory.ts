@@ -40,6 +40,18 @@ export function normalizeMemoryFieldName(name: string): string {
   return name.trim().toLowerCase().replace(/\s+/g, " ");
 }
 
+function distinctValues(values: Array<string | null>): string[] {
+  return values.reduce<string[]>((result, value) => {
+    if (
+      value &&
+      !result.some((existing) => existing.toLowerCase() === value.toLowerCase())
+    ) {
+      result.push(value);
+    }
+    return result;
+  }, []);
+}
+
 export function verifyMemoryReferences(
   event: MemoryVerification["event"],
   memory: FarmMemory,
@@ -60,12 +72,28 @@ export function verifyMemoryReferences(
     const distinctCitedFields = new Set(
       citedFields.map((item) => normalizeMemoryFieldName(item.field!)),
     );
+    const distinctMemoryFields = new Set(
+      memory.recentEvents
+        .map((item) => item.field)
+        .filter((item): item is string => item !== null)
+        .map(normalizeMemoryFieldName),
+    );
     const matchingField = memory.fields.find(
       (item) =>
         field !== null &&
         normalizeMemoryFieldName(item.name) === normalizeMemoryFieldName(field),
     );
-    if (matchingField && distinctCitedFields.size === 1) {
+    const citedFieldsMatch = citedFields.every(
+      (item) =>
+        normalizeMemoryFieldName(item.field!) ===
+        normalizeMemoryFieldName(matchingField?.name ?? ""),
+    );
+    if (
+      matchingField &&
+      distinctCitedFields.size === 1 &&
+      distinctMemoryFields.size === 1 &&
+      citedFieldsMatch
+    ) {
       const source = citedFields[0]!;
       field = matchingField.name;
       resolvedFromMemory.push({
@@ -87,11 +115,21 @@ export function verifyMemoryReferences(
     const distinctCitedCrops = new Set(
       citedCrops.map((item) => item.crop!.toLowerCase()),
     );
+    const distinctMemoryCrops = new Set(
+      memory.recentEvents
+        .map((item) => item.crop)
+        .filter((item): item is string => item !== null)
+        .map((item) => item.toLowerCase()),
+    );
     const matchingEvent = citedCrops.find(
       (item) =>
         crop !== null && item.crop!.toLowerCase() === crop.toLowerCase(),
     );
-    if (matchingEvent && distinctCitedCrops.size === 1) {
+    if (
+      matchingEvent &&
+      distinctCitedCrops.size === 1 &&
+      distinctMemoryCrops.size === 1
+    ) {
       crop = matchingEvent.crop;
       resolvedFromMemory.push({
         crop: "crop",
@@ -110,4 +148,15 @@ export function verifyMemoryReferences(
     resolvedFromMemory,
     unresolvedReferences,
   };
+}
+
+export function getMemoryReferenceOptions(
+  memory: FarmMemory,
+  kind: "field" | "crop",
+): string[] {
+  return distinctValues(
+    memory.recentEvents.map((event) =>
+      kind === "field" ? event.field : event.crop,
+    ),
+  ).slice(0, 5);
 }

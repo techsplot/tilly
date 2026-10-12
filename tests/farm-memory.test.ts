@@ -129,4 +129,48 @@ describe("memory reference verification", () => {
     expect(result.event.crop).toBeNull();
     expect(result.unresolvedReferences).toContain("crop");
   });
+
+  it("rejects a field that disagrees with its cited event", () => {
+    const result = verifyMemoryReferences(
+      {
+        field: "River Field",
+        crop: null,
+        fieldSource: "memory",
+        memoryEventIds: [firstEvent.id],
+      },
+      {
+        ...memory,
+        fields: [
+          ...memory.fields,
+          { id: "cccccccc-cccc-4ccc-8ccc-cccccccccccc", name: "River Field" },
+        ],
+      },
+    );
+    expect(result.event.field).toBeNull();
+    expect(result.unresolvedReferences).toContain("field");
+  });
+
+  it("rejects a memory value when all recent history is ambiguous", () => {
+    const result = verifyMemoryReferences(
+      {
+        field: "Back Field",
+        crop: null,
+        fieldSource: "memory",
+        memoryEventIds: [firstEvent.id],
+      },
+      {
+        ...memory,
+        recentEvents: [
+          firstEvent,
+          {
+            ...firstEvent,
+            id: "22222222-2222-4222-8222-222222222222",
+            field: "River Field",
+          },
+        ],
+      },
+    );
+    expect(result.event.field).toBeNull();
+    expect(result.unresolvedReferences).toContain("field");
+  });
 });
