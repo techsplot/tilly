@@ -28,6 +28,7 @@ export function toFarmEvent(row: FarmEventRow): FarmEvent {
     status: row.status,
     missingFields: row.missingFields,
     sourceText: row.sourceText,
+    memoryEventIds: row.memoryEventIds,
   };
 }
 
@@ -108,6 +109,25 @@ export async function insertFarmEvent(
     .returning();
   if (!row) throw new Error("Farm event could not be saved.");
   return row;
+}
+
+export async function findActionableMemoryEventIds(
+  db: Database,
+  farmId: string,
+  eventIds: string[],
+): Promise<string[]> {
+  if (eventIds.length === 0) return [];
+  const rows = await db
+    .select({ id: farmEvents.id })
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        inArray(farmEvents.id, eventIds),
+        inArray(farmEvents.status, ["confirmed", "corrected"]),
+      ),
+    );
+  return rows.map((row) => row.id);
 }
 
 export async function insertCorrection(

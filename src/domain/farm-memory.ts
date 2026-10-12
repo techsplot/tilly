@@ -20,6 +20,8 @@ export type MemoryResolution = {
   field?: "field";
   crop?: "crop";
   eventId: string;
+  activity: string;
+  eventDate: string | null;
 };
 
 export type MemoryVerification = {
@@ -52,24 +54,26 @@ export function verifyMemoryReferences(
   let crop = event.crop;
 
   if (event.fieldSource === "memory") {
-    const matchingFields = memory.fields.filter(
+    const citedFields = memory.recentEvents.filter(
+      (item) => memoryEventIds.includes(item.id) && item.field,
+    );
+    const distinctCitedFields = new Set(
+      citedFields.map((item) => normalizeMemoryFieldName(item.field!)),
+    );
+    const matchingField = memory.fields.find(
       (item) =>
         field !== null &&
         normalizeMemoryFieldName(item.name) === normalizeMemoryFieldName(field),
     );
-    const citedFields = new Set(
-      memory.recentEvents
-        .filter((item) => memoryEventIds.includes(item.id) && item.field)
-        .map((item) => normalizeMemoryFieldName(item.field!)),
-    );
-    const eligibleFields = matchingFields.filter((item) =>
-      citedFields.size === 0
-        ? true
-        : citedFields.has(normalizeMemoryFieldName(item.name)),
-    );
-    if (eligibleFields.length === 1) {
-      field = eligibleFields[0]!.name;
-      resolvedFromMemory.push({ field: "field", eventId: memoryEventIds[0]! });
+    if (matchingField && distinctCitedFields.size === 1) {
+      const source = citedFields[0]!;
+      field = matchingField.name;
+      resolvedFromMemory.push({
+        field: "field",
+        eventId: source.id,
+        activity: source.activity,
+        eventDate: source.eventDate,
+      });
     } else {
       field = null;
       unresolvedReferences.push("field");
@@ -86,7 +90,12 @@ export function verifyMemoryReferences(
     );
     if (matchingEvent) {
       crop = matchingEvent.crop;
-      resolvedFromMemory.push({ crop: "crop", eventId: matchingEvent.id });
+      resolvedFromMemory.push({
+        crop: "crop",
+        eventId: matchingEvent.id,
+        activity: matchingEvent.activity,
+        eventDate: matchingEvent.eventDate,
+      });
     } else {
       crop = null;
       unresolvedReferences.push("crop");

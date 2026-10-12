@@ -8,6 +8,7 @@ import {
   type FarmInteraction,
   type FarmInteractionResult,
 } from "../domain/farm-event";
+import { verifyMemoryReferences, type FarmMemory } from "../domain/farm-memory";
 import {
   createNebiusClient,
   getNebiusModel,
@@ -27,7 +28,10 @@ Return JSON only with this exact shape:
       "field": "string or null",
       "eventDate": "YYYY-MM-DD or null",
       "quantity": "number or null",
-      "unit": "string or null"
+      "unit": "string or null",
+      "fieldSource": "message|memory|null",
+      "cropSource": "message|memory|null",
+      "memoryEventIds": ["id"]
     }
   ],
   "clarificationRequired": "boolean",
@@ -42,11 +46,19 @@ event with that field set to null and do not ask a question.
 
 Clarifications are the farmer's answers and take precedence over the original
 message. If an answer provides a value for a missing field, fill that field.
+
+farmMemory is the farmer's own confirmed history. Use it only to resolve
+references in the message such as "that field", "the maize", or "same place
+as last week". Never copy a value from memory unless the message refers to it.
+If a reference could match more than one field or crop, do not choose; leave
+the value null and ask one question naming the options. Cite the memory event
+ids used for each memory-sourced value.
 `;
 
 function applyInteractionPolicy(
   interaction: FarmInteraction,
   sourceText: string,
+  farmMemory: FarmMemory,
 ): FarmInteractionResult {
   const events: FarmEvent[] = interaction.events.map((event) => {
     const missingFields = getMissingFields(event);
@@ -70,7 +82,13 @@ function applyInteractionPolicy(
   return {
     ...interaction,
     clarificationRequired: true,
-    clarificationQuestion: `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
+    clarificationQuestion:
+      firstIncompleteEvent.unresolvedReferences?.includes("field") &&
+      farmMemory.fields.length > 0
+        ? `Which field did you mean: ${farmMemory.fields
+            .map((field) => field.name)
+            .join(" or ")}?`
+        : `To complete this ${firstIncompleteEvent.activity} record, what is the ${firstIncompleteEvent.missingFields[0]}?`,
     events,
   };
 }
@@ -79,6 +97,7 @@ export async function extractFarmEvent(
   farmerMessage: string,
   currentDate: string,
   clarifications?: { question: string; answer: string }[],
+  farmMemory: FarmMemory = { fields: [], recentEvents: [] },
 ): Promise<FarmInteractionResult> {
   const client = createNebiusClient();
 
@@ -92,6 +111,16 @@ export async function extractFarmEvent(
     sourceText = `${farmerMessage}\n${qaPairs}`;
   }
 
+  const userContent: {
+    currentDate: string;
+    farmerMessage: string;
+    clarifications?: { question: string; answer: string }[];
+    farmMemory?: FarmMemory;
+  } = { currentDate, farmerMessage };
+  if (clarifications) userContent.clarifications = clarifications;
+  if (farmMemory.fields.length > 0 || farmMemory.recentEvents.length > 0)
+    userContent.farmMemory = farmMemory;
+
   const response = await client.chat.completions.create({
     model: getNebiusModel(),
     temperature: 0,
@@ -100,7 +129,7 @@ export async function extractFarmEvent(
       { role: "system", content: extractionInstructions },
       {
         role: "user",
-        content: JSON.stringify({ currentDate, farmerMessage, clarifications }),
+        content: JSON.stringify(userContent),
       },
     ],
   });
@@ -124,7 +153,33 @@ export async function extractFarmEvent(
     );
   }
 
-  return applyInteractionPolicy(result.data, sourceText);
+  const verifiedEvents = result.data.events.map((event) => {
+    const verified = verifyMemoryReferences(
+      {
+        field: event.field,
+        crop: event.crop,
+        ...(event.fieldSource !== undefined
+          ? { fieldSource: event.fieldSource }
+          : {}),
+        ...(event.cropSource !== undefined
+          ? { cropSource: event.cropSource }
+          : {}),
+        memoryEventIds: event.memoryEventIds ?? [],
+      },
+      farmMemory,
+    );
+    return {
+      ...event,
+      ...verified.event,
+      resolvedFromMemory: verified.resolvedFromMemory,
+      unresolvedReferences: verified.unresolvedReferences,
+    };
+  });
+  return applyInteractionPolicy(
+    { ...result.data, events: verifiedEvents },
+    sourceText,
+    farmMemory,
+  );
 }
 
 const isDirectExecution =

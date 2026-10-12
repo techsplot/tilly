@@ -1,4 +1,8 @@
 import { extractFarmEvent } from "@/src/application/extract-farm-event";
+import { getExistingFarmId } from "@/src/application/farm-context";
+import { loadFarmMemory } from "@/src/application/farm-memory";
+import { getDb } from "@/src/infrastructure/db/client";
+import type { FarmMemory } from "@/src/domain/farm-memory";
 import { APIConnectionTimeoutError } from "openai";
 import {
   farmInteractionResultSchema,
@@ -40,7 +44,29 @@ export async function POST(request: Request): Promise<Response> {
   }
   const modelStart = Date.now();
   try {
-    const result = await extractFarmEvent(message, currentDate, clarifications);
+    let farmMemory: FarmMemory = { fields: [], recentEvents: [] };
+    let farmId: string | undefined;
+    try {
+      const db = getDb();
+      farmId = await getExistingFarmId(db, request);
+      if (farmId) farmMemory = await loadFarmMemory(db, farmId, currentDate);
+    } catch (memoryError) {
+      console.error("FarmMind memory load failed", memoryError);
+      farmMemory = { fields: [], recentEvents: [] };
+    }
+    const result = await extractFarmEvent(
+      message,
+      currentDate,
+      clarifications,
+      farmMemory,
+    );
+    console.info("FarmMind memory interpretation", {
+      farmId: farmId ?? null,
+      memoryItems: farmMemory.fields.length + farmMemory.recentEvents.length,
+      memoryEventIds: result.events.flatMap(
+        (event) => event.memoryEventIds ?? [],
+      ),
+    });
     const parsedResult = farmInteractionResultSchema.safeParse(result);
     const duration = Date.now() - modelStart;
     console.info(`FarmMind model call: ${duration}ms`);

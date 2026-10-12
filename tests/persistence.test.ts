@@ -1,4 +1,5 @@
 import { PGlite } from "@electric-sql/pglite";
+import { eq } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
 import {
@@ -17,6 +18,7 @@ import {
   recordFarmEvent,
   rejectRecordedEvent,
 } from "../src/application/persist-farm-event";
+import { loadFarmMemory } from "../src/application/farm-memory";
 import * as schema from "../src/infrastructure/db/schema";
 import {
   farms,
@@ -125,6 +127,46 @@ describe("farm event persistence", () => {
     expect(await listTimeline(db, farmId)).toEqual([]);
   });
 
+  it("loads only recent actionable memory for the requested farm", async () => {
+    const farmA = await createFarm(db);
+    const farmB = await createFarm(db);
+    await recordFarmEvent(db, farmA, {
+      proposal: event({ eventDate: "2026-10-10" }),
+      final: event({ eventDate: "2026-10-10" }),
+      decision: "confirm",
+    });
+
+    await recordFarmEvent(db, farmA, {
+      proposal: event({ field: "Old Field", eventDate: "2026-08-01" }),
+      final: event({ field: "Old Field", eventDate: "2026-08-01" }),
+      decision: "confirm",
+    });
+    await recordFarmEvent(db, farmA, {
+      proposal: event({ field: "Draft Field", eventDate: "2026-10-11" }),
+      final: event({ field: "Draft Field", eventDate: "2026-10-11" }),
+      decision: "reject",
+    });
+    await recordFarmEvent(db, farmB, {
+      proposal: event({ field: "Other Farm Field", eventDate: "2026-10-10" }),
+      final: event({ field: "Other Farm Field", eventDate: "2026-10-10" }),
+      decision: "confirm",
+    });
+
+    const memory = await loadFarmMemory(db, farmA, "2026-10-12");
+    expect(memory.recentEvents).toHaveLength(1);
+    expect(memory.recentEvents[0]).toMatchObject({
+      field: "Back Field",
+      eventDate: "2026-10-10",
+    });
+    expect(memory.recentEvents[0]).not.toHaveProperty("sourceText");
+    expect(memory.fields.map((field) => field.name)).toEqual(
+      expect.arrayContaining(["Back Field", "Old Field", "Draft Field"]),
+    );
+    expect(
+      memory.recentEvents.some((item) => item.field === "Other Farm Field"),
+    ).toBe(false);
+  });
+
   it("records one correction containing only changed fields", async () => {
     const farmId = await createFarm(db);
     const proposal = event();
@@ -140,6 +182,45 @@ describe("farm event persistence", () => {
     expect(corrections[0]?.eventId).toBe(saved.id);
     expect(corrections[0]?.before).toEqual({ field: "Back Field" });
     expect(corrections[0]?.after).toEqual({ field: "North   Field" });
+  });
+
+  it("stores only same-farm actionable memory event ids", async () => {
+    const farmA = await createFarm(db);
+    const farmB = await createFarm(db);
+    const source = await recordFarmEvent(db, farmA, {
+      proposal: event(),
+      final: event(),
+      decision: "confirm",
+    });
+    const rejected = await recordFarmEvent(db, farmA, {
+      proposal: event({ field: "Rejected Field" }),
+      final: event({ field: "Rejected Field" }),
+      decision: "reject",
+    });
+    const otherFarm = await recordFarmEvent(db, farmB, {
+      proposal: event(),
+      final: event(),
+      decision: "confirm",
+    });
+    const saved = await recordFarmEvent(db, farmA, {
+      proposal: event({ field: "New Field" }),
+      final: {
+        ...event({ field: "New Field" }),
+        memoryEventIds: [
+          source.id,
+          rejected.id,
+          otherFarm.id,
+          "44444444-4444-4444-8444-444444444444",
+        ],
+      },
+      decision: "confirm",
+    });
+
+    const [row] = await db
+      .select({ memoryEventIds: schema.farmEvents.memoryEventIds })
+      .from(schema.farmEvents)
+      .where(eq(schema.farmEvents.id, saved.id));
+    expect(row?.memoryEventIds).toEqual([source.id]);
   });
 
   it("keeps a completed saved event proposed until confirmation", async () => {
