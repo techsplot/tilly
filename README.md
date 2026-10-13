@@ -47,7 +47,7 @@ Working today:
   question: it either answers it (merged and saved at once, gaps and all)
   or turns out to be a new note, in which case the pending one is saved
   with its gaps first. A farmer can correct a gap at any time by saying so.
-- **Gap reminders.** `GET /api/agent/nudge` surfaces at most one light
+- **Gap reminders.** `POST /api/agent/nudge` surfaces at most one light
   reminder per session for an agent-saved record with a gap, using fixed
   wording, no more than once every 24 hours; answering it corrects that
   record, and "stop asking" silences it for good.

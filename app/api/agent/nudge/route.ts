@@ -3,7 +3,7 @@ import { getNudge } from "@/src/application/farm-agent";
 import { getDb } from "@/src/infrastructure/db/client";
 import { agentErrorResponse } from "../errors";
 
-export async function GET(request: Request): Promise<Response> {
+export async function POST(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const farmId = await getExistingFarmId(db, request);

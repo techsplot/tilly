@@ -176,7 +176,7 @@ export function useFarmAgent() {
   const offerNudge = useCallback(async () => {
     if (nudgeOfferedRef.current || pending) return;
     try {
-      const response = await fetch("/api/agent/nudge");
+      const response = await fetch("/api/agent/nudge", { method: "POST" });
       if (!response.ok) return;
       const body: unknown = await response.json();
       const parsed = nudgeResponseSchema.safeParse(body);
