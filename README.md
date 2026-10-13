@@ -53,7 +53,9 @@ Working today:
   record, and "stop asking" silences it for good.
 - Spoken-style corrections ("no, it was the north field") and deletion
   ("delete that") apply to the farmer's most recently acted-on record, with a
-  full correction history.
+  full correction history. If a correction says no new value ("that's
+  wrong"), the agent asks "What should I change it to?" once, and the answer
+  changes only that record.
 - One-tap Undo on every reported action (`POST /api/events/[id]/undo`),
   checked against the record's current state; undoing a correction targets
   the specific correction that produced the record's current values, not
