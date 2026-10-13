@@ -528,14 +528,38 @@ async function handlePendingClarification(
     memory,
   );
 
-  const sameNoteAnswer =
-    interaction.intent === "record" &&
-    interaction.events[0]?.activity === pending.event.activity;
-
-  if (sameNoteAnswer) {
-    const merged =
-      interaction.events[0] ?? pendingEventToFarmEvent(pending.event);
-    return [await recordedAction(db, farmId, merged, currentDate)];
+  // Review 2, finding 2: the first event with the pending activity is the
+  // answered note; every other event in the reply is handled as a new note,
+  // so an extra activity ("I also weeded...") is never dropped. If the model
+  // returns only the pending activity, that is all the code can see: the
+  // merged note is saved and nothing else is invented.
+  if (interaction.intent === "record") {
+    const mergedIndex = interaction.events.findIndex(
+      (event) => event.activity === pending.event.activity,
+    );
+    if (mergedIndex !== -1) {
+      const merged = await recordedAction(
+        db,
+        farmId,
+        interaction.events[mergedIndex]!,
+        currentDate,
+      );
+      const rest = interaction.events.filter(
+        (_, index) => index !== mergedIndex,
+      );
+      if (rest.length === 0) return [merged];
+      return [
+        merged,
+        ...(await applyRecordFlow(
+          db,
+          farmId,
+          message,
+          currentDate,
+          rest,
+          interaction.followUpQuestion,
+        )),
+      ];
+    }
   }
 
   // End the pending note first, with whatever was known before this reply.
@@ -560,8 +584,10 @@ async function handlePendingClarification(
     ];
   if (interaction.intent === "delete")
     return [ended, ...(await applyDelete(db, farmId, extendedRecentIds))];
-  if (interaction.intent === "other")
-    return [ended, { type: "reply", text: UNSUPPORTED_REPLY }];
+  // A reply with no activity ("I don't know", "skip") just ends the note;
+  // it is not an unsupported request.
+  if (interaction.intent === "other" || interaction.events.length === 0)
+    return [ended];
   return [
     ended,
     ...(await applyRecordFlow(

@@ -349,6 +349,99 @@ describe("farm agent service", () => {
     expect(await listTimeline(db, farmId)).toHaveLength(2);
   });
 
+  it("keeps every activity when the reply returns the pending one plus another (review 2, finding 2)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        sprayEvent(),
+        completeEvent({ activity: "weeding", field: "River Field" }),
+      ]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I also weeded the river field",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "recorded",
+    ]);
+    const timeline = await listTimeline(db, farmId);
+    expect(timeline.map((event) => event.activity).sort()).toEqual([
+      "spraying",
+      "weeding",
+    ]);
+    const spraying = timeline.find((event) => event.activity === "spraying");
+    expect(spraying?.field).toBeNull();
+    expect(spraying?.missingFields).toContain("field");
+  });
+
+  it("ends the pending note when the reply returns only the pending activity (review 2, finding 2)", async () => {
+    // Chosen behavior: the code only sees what the model returns. If the
+    // model folds the reply into the pending spraying note and drops the
+    // weeding, the spraying note is saved with what the model merged, no
+    // question is asked again, and nothing is invented for the weeding.
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I also weeded the river field",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toHaveLength(1);
+    expect(second[0]?.type).toBe("recorded");
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.activity).toBe("spraying");
+    expect(second[0].event.missingFields).toContain("field");
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+  });
+
+  it("an 'other' reply to the question saves the note with gaps and no unsupported text (review 2, finding 2)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I don't know",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toHaveLength(1);
+    expect(second[0]?.type).toBe("recorded");
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.activity).toBe("spraying");
+    expect(second[0].event.missingFields).toContain("field");
+    expect(JSON.stringify(second)).not.toContain("coming soon");
+  });
+
   it("asks a question for an unresolved memory reference (finding 8)", async () => {
     const farmId = await createFarm(db);
     await recordFarmEvent(db, farmId, {
