@@ -91,6 +91,7 @@ const UNSUPPORTED_REPLY =
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity.";
 const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
+const GAP_LEFT_AS_IS_REPLY = "OK, I'll leave that record as it is for now.";
 const CORRECTION_QUESTION = "What should I change it to?";
 const CORRECTION_NOT_UNDERSTOOD_REPLY =
   "I didn't catch what to change, so I left that record as it was.";
@@ -106,9 +107,13 @@ export function parseYesNo(message: string): "yes" | "no" | null {
   return null;
 }
 
+// Review 2, finding 3: only a whole reply stops a nudge, so "no, it was the
+// north field" is still answered as a correction.
 function isStopNudgeReply(message: string): boolean {
-  const normalized = message.trim().toLowerCase();
-  return /^(stop asking|don'?t know|skip|no\b)/.test(normalized);
+  const normalized = message.trim().toLowerCase().replace(/[’]/g, "'");
+  return /^(stop asking|stop|skip|i don'?t know|don'?t know|never mind|no)[.!?\s]*$/.test(
+    normalized,
+  );
 }
 
 const detailLabel: Record<string, string> = {
@@ -603,7 +608,11 @@ async function handlePendingClarification(
 
 function buildGapCorrectionChanges(
   target: FarmEvent,
-  answered: FarmEvent,
+  answered: {
+    crop?: string | null | undefined;
+    field?: string | null | undefined;
+    eventDate?: string | null | undefined;
+  },
 ): Record<string, unknown> {
   const changes: Record<string, unknown> = {};
   if (target.missingFields.includes("crop") && answered.crop)
@@ -645,23 +654,26 @@ async function handleGapAnswer(
     memory,
   );
 
-  const answered = interaction.events[0];
-  const changes =
-    interaction.intent === "record" && answered
-      ? buildGapCorrectionChanges(targetEvent, answered)
-      : {};
-
-  if (Object.keys(changes).length === 0) {
-    return routeInteraction(
-      db,
-      farmId,
-      message,
-      currentDate,
-      interaction,
-      recentEventIds,
-    );
+  // Review 2, finding 3: a gap answer is applied only when it is about the
+  // same activity, or the model says it corrects a record rather than
+  // describing a new one. Anything else leaves the nudge unanswered and is
+  // handled as a new note.
+  const answered =
+    interaction.intent === "record"
+      ? interaction.events.find(
+          (event) => event.activity === targetEvent.activity,
+        )
+      : interaction.intent === "correct"
+        ? interaction.correction?.changes
+        : undefined;
+  if (!answered) {
+    return handleNewMessage(db, farmId, message, currentDate, recentEventIds);
   }
 
+  const changes = buildGapCorrectionChanges(targetEvent, answered);
+  if (Object.keys(changes).length === 0) {
+    return [{ type: "reply", text: GAP_LEFT_AS_IS_REPLY }];
+  }
   return [await correctTarget(db, farmId, target, changes, currentDate)];
 }
 

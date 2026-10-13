@@ -867,6 +867,92 @@ describe("gap reminders (finding 12)", () => {
     expect(actions[0].event.missingFields).toEqual([]);
   });
 
+  it("a reply about another activity leaves the gap and saves a new note (review 2, finding 3)", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    const pending: Pending = { kind: "gap", eventId: saved.id };
+    const weeding = completeEvent({
+      activity: "weeding",
+      field: "River Field",
+      eventDate: "2026-10-12",
+    });
+
+    // First call: the reply read against the nudge question; second call:
+    // the same reply handled as a new note.
+    mockCreate
+      .mockResolvedValueOnce(modelResponse([weeding]))
+      .mockResolvedValueOnce(modelResponse([weeding]));
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the river field today",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.type).toBe("recorded");
+    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(actions[0].event.activity).toBe("weeding");
+
+    const [row] = await db
+      .select()
+      .from(farmEvents)
+      .where(eq(farmEvents.id, saved.id));
+    expect(row?.fieldName).toBeNull();
+    expect(row?.missingFields).toContain("field");
+    expect(await db.select().from(eventCorrections)).toHaveLength(0);
+  });
+
+  it("'no, north plot' answers the nudge as a correction (review 2, finding 3)", async () => {
+    const farmId = await createFarm(db);
+    const saved = await saveGappyEvent(farmId);
+    const pending: Pending = { kind: "gap", eventId: saved.id };
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([], {
+        intent: "correct",
+        correction: { changes: { field: "North Plot" } },
+      }),
+    );
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "no, north plot",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(actions).toHaveLength(1);
+    expect(actions[0]?.type).toBe("corrected");
+    if (actions[0]?.type !== "corrected") throw new Error("expected corrected");
+    expect(actions[0].event.id).toBe(saved.id);
+    expect(actions[0].event.field).toBe("North Plot");
+    expect(actions[0].event.missingFields).toEqual([]);
+  });
+
+  it.each(["no", "No.", "stop", "skip", "I don't know", "never mind!"])(
+    "bare '%s' stops the nudge without a model call (review 2, finding 3)",
+    async (message) => {
+      const farmId = await createFarm(db);
+      const saved = await saveGappyEvent(farmId);
+      const pending: Pending = { kind: "gap", eventId: saved.id };
+
+      const actions = await handleFarmerMessage(db, farmId, {
+        message,
+        currentDate: "2026-10-12",
+        pending,
+        recentEventIds: [],
+      });
+
+      expect(mockCreate).not.toHaveBeenCalled();
+      expect(actions).toEqual([
+        { type: "reply", text: "OK, I won't ask about that again." },
+      ]);
+    },
+  );
+
   it("'stop asking' stops the nudge without a model call", async () => {
     const farmId = await createFarm(db);
     const saved = await saveGappyEvent(farmId);
