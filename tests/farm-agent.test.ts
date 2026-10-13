@@ -441,6 +441,116 @@ describe("farm agent service", () => {
     expect(corrections).toHaveLength(1);
   });
 
+  it("'that's wrong' then 'river field' corrects the original and saves nothing new (review 2, finding 1)", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([completeEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the back field today",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "recorded") throw new Error("expected recorded");
+    const original = first[0].event;
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([], { intent: "correct", correction: { changes: {} } }),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "that's wrong",
+      currentDate: "2026-10-12",
+      recentEventIds: [original.id],
+    });
+    expect(second).toEqual([
+      {
+        type: "question",
+        text: "What should I change it to?",
+        pending: { kind: "correction", eventId: original.id },
+      },
+    ]);
+    if (second[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([], {
+        intent: "correct",
+        correction: { changes: { field: "River Field" } },
+      }),
+    );
+    const third = await handleFarmerMessage(db, farmId, {
+      message: "river field",
+      currentDate: "2026-10-12",
+      pending: second[0].pending,
+      recentEventIds: [original.id],
+    });
+
+    expect(third).toHaveLength(1);
+    expect(third[0]?.type).toBe("corrected");
+    if (third[0]?.type !== "corrected") throw new Error("expected corrected");
+    expect(third[0].event.id).toBe(original.id);
+    expect(third[0].changes).toEqual([
+      { field: "field", before: "Back Field", after: "River Field" },
+    ]);
+
+    const timeline = await listTimeline(db, farmId);
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.id).toBe(original.id);
+    expect(timeline[0]?.field).toBe("River Field");
+    const corrections = await db.select().from(eventCorrections);
+    expect(corrections).toHaveLength(1);
+    expect(corrections[0]?.eventId).toBe(original.id);
+  });
+
+  it("a correction answer the model restates as a record changes only differing values (review 2, finding 1)", async () => {
+    const farmId = await createFarm(db);
+    const { event: saved } = await recordAgentEvent(db, farmId, {
+      final: proposal(),
+      currentDate: "2026-10-12",
+    });
+    const pending: Pending = { kind: "correction", eventId: saved.id };
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([completeEvent({ field: "River Field" })]),
+    );
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "river field",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(actions[0]?.type).toBe("corrected");
+    if (actions[0]?.type !== "corrected") throw new Error("expected corrected");
+    expect(actions[0].changes).toEqual([
+      { field: "field", before: "Back Field", after: "River Field" },
+    ]);
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+  });
+
+  it("a correction answer with no usable change leaves the record and asks nothing (review 2, finding 1)", async () => {
+    const farmId = await createFarm(db);
+    const { event: saved } = await recordAgentEvent(db, farmId, {
+      final: proposal(),
+      currentDate: "2026-10-12",
+    });
+    const pending: Pending = { kind: "correction", eventId: saved.id };
+
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "never mind",
+      currentDate: "2026-10-12",
+      pending,
+      recentEventIds: [],
+    });
+
+    expect(actions).toEqual([
+      {
+        type: "reply",
+        text: "I didn't catch what to change, so I left that record as it was.",
+      },
+    ]);
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+    expect(await db.select().from(eventCorrections)).toHaveLength(0);
+  });
+
   it("replies without changing anything when correct has no valid recent id", async () => {
     const farmId = await createFarm(db);
     mockCreate.mockResolvedValueOnce(

@@ -42,6 +42,7 @@ const pendingSchema = z.discriminatedUnion("kind", [
     ),
   }),
   z.object({ kind: z.literal("gap"), eventId: z.string() }),
+  z.object({ kind: z.literal("correction"), eventId: z.string() }),
 ]);
 
 const agentActionSchema = z.discriminatedUnion("type", [

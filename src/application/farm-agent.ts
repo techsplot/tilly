@@ -24,6 +24,7 @@ import {
   toFarmEvent,
   type Database,
 } from "../infrastructure/db/farm-event-repository";
+import type { FarmEventRow } from "../infrastructure/db/schema";
 import type { FarmMemory } from "../domain/farm-memory";
 
 // The partial event known before the agent asked its one question, so the
@@ -51,6 +52,10 @@ export type Pending =
     }
   | {
       kind: "gap";
+      eventId: string;
+    }
+  | {
+      kind: "correction";
       eventId: string;
     };
 
@@ -86,6 +91,9 @@ const UNSUPPORTED_REPLY =
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity.";
 const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
+const CORRECTION_QUESTION = "What should I change it to?";
+const CORRECTION_NOT_UNDERSTOOD_REPLY =
+  "I didn't catch what to change, so I left that record as it was.";
 
 export function parseYesNo(message: string): "yes" | "no" | null {
   const normalized = message
@@ -301,10 +309,44 @@ function cleanCorrectionChanges(
   return result;
 }
 
+function correctionQuestion(eventId: string): AgentAction {
+  return {
+    type: "question",
+    text: CORRECTION_QUESTION,
+    pending: { kind: "correction", eventId },
+  };
+}
+
+// Applies already-cleaned changes to a record the caller has checked is
+// owned and active, and reports the before/after of each changed field.
+async function correctTarget(
+  db: Database,
+  farmId: string,
+  target: FarmEventRow,
+  changes: Record<string, unknown>,
+  currentDate: string,
+): Promise<Extract<AgentAction, { type: "corrected" }>> {
+  const before = toFarmEvent(target);
+  const { event: saved, correctionId } = await correctRecordedEvent(
+    db,
+    farmId,
+    target.id,
+    changes as Parameters<typeof correctRecordedEvent>[3],
+    currentDate,
+  );
+  const changeList: Change[] = Object.entries(
+    changedFields(before, saved)?.after ?? {},
+  ).map(([field]) => ({
+    field,
+    before: before[field as keyof FarmEvent],
+    after: saved[field as keyof FarmEvent],
+  }));
+  return { type: "corrected", event: saved, changes: changeList, correctionId };
+}
+
 async function applyCorrection(
   db: Database,
   farmId: string,
-  message: string,
   currentDate: string,
   changes: Record<string, unknown>,
   recentEventIds: string[],
@@ -313,57 +355,97 @@ async function applyCorrection(
   if (!target) return [{ type: "reply", text: NOTHING_TO_TARGET_REPLY }];
 
   const cleanChanges = cleanCorrectionChanges(changes);
-
   if (Object.keys(cleanChanges).length === 0) {
-    return [
-      {
-        type: "question",
-        text: "What should I change it to?",
-        pending: {
-          kind: "clarification",
-          originalMessage: message,
-          event: toPendingEvent(toFarmEvent(target)),
-          question: "What should I change it to?",
-          clarifications: [],
-        },
-      },
-    ];
+    return [correctionQuestion(target.id)];
   }
 
   try {
-    const before = toFarmEvent(target);
-    const { event: saved, correctionId } = await correctRecordedEvent(
-      db,
-      farmId,
-      target.id,
-      cleanChanges as Parameters<typeof correctRecordedEvent>[3],
-      currentDate,
-    );
-    const changeList: Change[] = Object.entries(
-      changedFields(before, saved)?.after ?? {},
-    ).map(([field]) => ({
-      field,
-      before: before[field as keyof FarmEvent],
-      after: saved[field as keyof FarmEvent],
-    }));
-    return [
-      { type: "corrected", event: saved, changes: changeList, correctionId },
-    ];
+    return [await correctTarget(db, farmId, target, cleanChanges, currentDate)];
   } catch (error) {
     if (error instanceof ValidationError || error instanceof LifecycleError) {
-      return [
-        {
-          type: "question",
-          text: "What should I change it to?",
-          pending: {
-            kind: "clarification",
-            originalMessage: message,
-            event: toPendingEvent(toFarmEvent(target)),
-            question: "What should I change it to?",
-            clarifications: [],
-          },
-        },
-      ];
+      return [correctionQuestion(target.id)];
+    }
+    throw error;
+  }
+}
+
+function describeRecord(event: FarmEvent): string {
+  const details = [
+    event.crop,
+    event.field,
+    event.eventDate ? `on ${formatNudgeDate(event.eventDate)}` : null,
+  ].filter(Boolean);
+  return details.length > 0
+    ? `${event.activity} (${details.join(", ")})`
+    : event.activity;
+}
+
+const correctableFields = [
+  "crop",
+  "field",
+  "eventDate",
+  "quantity",
+  "unit",
+  "eventTime",
+  "timeOfDay",
+] as const;
+
+// Review 2, finding 1: the answer to "What should I change it to?" is
+// extracted as a correction of the one record it was asked about and
+// applied to that record only. Nothing new is ever saved from it, and the
+// question is not asked again.
+async function handleCorrectionAnswer(
+  db: Database,
+  farmId: string,
+  message: string,
+  currentDate: string,
+  pending: Extract<Pending, { kind: "correction" }>,
+): Promise<AgentAction[]> {
+  const target = await findFirstOwnedActiveEvent(db, farmId, [pending.eventId]);
+  if (!target) return [{ type: "reply", text: NOTHING_TO_TARGET_REPLY }];
+  const targetEvent = toFarmEvent(target);
+
+  const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
+  const interaction = await extractFarmEvent(
+    `Change my ${describeRecord(targetEvent)} record.`,
+    currentDate,
+    [{ question: CORRECTION_QUESTION, answer: message }],
+    memory,
+  );
+
+  let changes: Record<string, unknown> = {};
+  if (interaction.intent === "correct") {
+    changes = cleanCorrectionChanges(interaction.correction?.changes);
+  } else if (interaction.intent === "record") {
+    // A model may restate the record instead of returning a correction;
+    // only values that differ from the record count as changes, and only
+    // while it is still the same activity.
+    const restated = interaction.events.find(
+      (event) => event.activity === targetEvent.activity,
+    );
+    if (restated) {
+      changes = cleanCorrectionChanges(
+        Object.fromEntries(
+          correctableFields
+            .filter(
+              (field) =>
+                restated[field] != null &&
+                restated[field] !== targetEvent[field],
+            )
+            .map((field) => [field, restated[field]]),
+        ),
+      );
+    }
+  }
+
+  if (Object.keys(changes).length === 0) {
+    return [{ type: "reply", text: CORRECTION_NOT_UNDERSTOOD_REPLY }];
+  }
+  try {
+    return [await correctTarget(db, farmId, target, changes, currentDate)];
+  } catch (error) {
+    if (error instanceof ValidationError || error instanceof LifecycleError) {
+      return [{ type: "reply", text: CORRECTION_NOT_UNDERSTOOD_REPLY }];
     }
     throw error;
   }
@@ -402,7 +484,6 @@ async function routeInteraction(
     return applyCorrection(
       db,
       farmId,
-      message,
       currentDate,
       interaction.correction?.changes ?? {},
       recentEventIds,
@@ -472,7 +553,6 @@ async function handlePendingClarification(
       ...(await applyCorrection(
         db,
         farmId,
-        message,
         currentDate,
         interaction.correction?.changes ?? {},
         extendedRecentIds,
@@ -556,23 +636,7 @@ async function handleGapAnswer(
     );
   }
 
-  const { event: saved, correctionId } = await correctRecordedEvent(
-    db,
-    farmId,
-    pending.eventId,
-    changes as Parameters<typeof correctRecordedEvent>[3],
-    currentDate,
-  );
-  const changeList: Change[] = Object.entries(
-    changedFields(targetEvent, saved)?.after ?? {},
-  ).map(([field]) => ({
-    field,
-    before: targetEvent[field as keyof FarmEvent],
-    after: saved[field as keyof FarmEvent],
-  }));
-  return [
-    { type: "corrected", event: saved, changes: changeList, correctionId },
-  ];
+  return [await correctTarget(db, farmId, target, changes, currentDate)];
 }
 
 async function handleNewMessage(
@@ -614,6 +678,15 @@ export async function handleFarmerMessage(
       input.currentDate,
       input.pending,
       recentEventIds,
+    );
+  }
+  if (input.pending?.kind === "correction") {
+    return handleCorrectionAnswer(
+      db,
+      farmId,
+      input.message,
+      input.currentDate,
+      input.pending,
     );
   }
   if (input.pending?.kind === "clarification") {

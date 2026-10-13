@@ -52,6 +52,10 @@ const pendingSchema = z.discriminatedUnion("kind", [
     kind: z.literal("gap"),
     eventId: z.string(),
   }),
+  z.object({
+    kind: z.literal("correction"),
+    eventId: z.string(),
+  }),
 ]);
 
 const agentRequestSchema = z.object({
