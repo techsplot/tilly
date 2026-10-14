@@ -43,6 +43,8 @@ export const farmTimeOfDayEnum = pgEnum("farm_time_of_day", [
 
 export const farms = pgTable("farms", {
   id: uuid("id").defaultRandom().primaryKey(),
+  name: text("name").notNull(),
+  sessionId: text("session_id").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true })
     .defaultNow()
     .notNull(),

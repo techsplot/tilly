@@ -121,6 +121,7 @@ export const farmInteractionSchema = z.object({
     })
     .nullable()
     .optional(),
+  farmReference: z.string().trim().min(1).nullable().optional(),
 });
 
 export const farmInteractionResultSchema = z.object({
@@ -145,6 +146,7 @@ export const farmInteractionResultSchema = z.object({
     })
     .nullable()
     .optional(),
+  farmReference: z.string().trim().min(1).nullable().optional(),
 });
 
 // Question/Report filter schema - restricted structured filter for questions and reports

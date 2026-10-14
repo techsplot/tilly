@@ -16,6 +16,7 @@ vi.mock("../src/application/farm-context", () => ({
   getFarmContext: mockGetFarmContext,
   getExistingFarmId: mockGetExistingFarmId,
   farmCookieHeader: vi.fn((farmId: string) => `farm=${farmId}`),
+  sessionCookieHeader: vi.fn((sessionId: string) => `session=${sessionId}`),
   isUuid: vi.fn((value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value,
@@ -53,7 +54,12 @@ const savedEvent = { ...farmEvent, id: "11111111-1111-4111-8111-111111111111" };
 describe("farm event routes", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: true });
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: true,
+      isNewSession: false,
+    });
     mockGetExistingFarmId.mockResolvedValue("farm-id");
     mockRecordFarmEvent.mockReset();
     mockListTimeline.mockReset();

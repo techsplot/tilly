@@ -10,6 +10,7 @@ vi.mock("../src/infrastructure/db/client", () => ({
 vi.mock("../src/application/farm-context", () => ({
   getFarmContext: mockGetFarmContext,
   farmCookieHeader: vi.fn((farmId: string) => `farm=${farmId}`),
+  sessionCookieHeader: vi.fn((sessionId: string) => `session=${sessionId}`),
 }));
 vi.mock("../src/application/farm-agent", () => ({
   handleFarmerMessage: mockHandleFarmerMessage,
@@ -30,7 +31,12 @@ describe("agent route", () => {
   beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
-    mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: false });
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: false,
+      isNewSession: false,
+    });
     mockHandleFarmerMessage.mockReset();
     vi.spyOn(console, "error").mockImplementation(() => {});
   });
@@ -134,7 +140,12 @@ describe("agent route", () => {
   });
 
   it("creates a farm cookie on first use", async () => {
-    mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: true });
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: true,
+      isNewSession: true,
+    });
     mockHandleFarmerMessage.mockResolvedValue([]);
     const response = await POST(
       request(
@@ -145,7 +156,9 @@ describe("agent route", () => {
         }),
       ),
     );
-    expect(response.headers.get("set-cookie")).toBe("farm=farm-id");
+    expect(response.headers.get("set-cookie")).toBe(
+      "session=session-id, farm=farm-id",
+    );
   });
 
   it("returns 504 for SDK timeouts", async () => {

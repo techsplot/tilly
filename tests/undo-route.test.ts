@@ -10,6 +10,7 @@ vi.mock("../src/infrastructure/db/client", () => ({
 vi.mock("../src/application/farm-context", () => ({
   getFarmContext: mockGetFarmContext,
   farmCookieHeader: vi.fn((farmId: string) => `farm=${farmId}`),
+  sessionCookieHeader: vi.fn((sessionId: string) => `session=${sessionId}`),
   isUuid: vi.fn((value: string) =>
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
       value,
@@ -52,7 +53,12 @@ function request(id: string, body: unknown) {
 describe("undo route", () => {
   beforeEach(() => {
     vi.restoreAllMocks();
-    mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: false });
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: false,
+      isNewSession: false,
+    });
     mockUndoAgentAction.mockReset();
   });
 
@@ -116,7 +122,12 @@ describe("undo route", () => {
   });
 
   it("sets the farm cookie on first use", async () => {
-    mockGetFarmContext.mockResolvedValue({ farmId: "farm-id", isNew: true });
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: true,
+      isNewSession: false,
+    });
     mockUndoAgentAction.mockResolvedValue(savedEvent);
     const response = await request(eventId, { action: "deleted" });
     expect(response.headers.get("set-cookie")).toBe("farm=farm-id");

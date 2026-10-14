@@ -55,13 +55,19 @@ Return JSON only with this exact shape:
     "dateFrom": "YYYY-MM-DD or null",
     "dateTo": "YYYY-MM-DD or null",
     "reportType": "summary|by_activity|by_field|by_crop|by_day or null"
-  } or null
+  } or null,
+  "farmReference": "string or null"
 }
 
 Use the current date supplied by the application to resolve relative dates.
 Never invent a crop, field, date, quantity, or unit. The agent saves what the
 farmer said immediately; it does not wait for every detail. Leave any field
 you are not told set to null rather than guessing.
+
+If the farmer mentions a specific farm by name (for example "I planted maize at
+River Farm" or "what did I do at Home Plot?"), extract that farm name exactly as
+stated into farmReference. If no farm is mentioned, leave farmReference null.
+Never invent a farm name.
 
 The application, not you, decides whether a question is needed; it looks at
 which important details (date, and crop/field for most activities) are still

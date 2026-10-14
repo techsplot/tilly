@@ -1,6 +1,7 @@
 import {
   getFarmContext,
   farmCookieHeader,
+  sessionCookieHeader,
   isUuid,
 } from "@/src/application/farm-context";
 import { confirmRecordedEvent } from "@/src/application/persist-farm-event";
@@ -22,8 +23,11 @@ export async function POST(
     const context = await getFarmContext(db, request);
     const saved = await confirmRecordedEvent(db, context.farmId, id);
     const response = Response.json(saved);
-    if (context.isNew)
-      response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));
+    const cookies: string[] = [];
+    if (context.isNewSession)
+      cookies.push(sessionCookieHeader(context.sessionId));
+    if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
+    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return eventErrorResponse(error);

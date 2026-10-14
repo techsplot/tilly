@@ -35,7 +35,7 @@ import {
 import { loadFarmMemory } from "../src/application/farm-memory";
 import * as schema from "../src/infrastructure/db/schema";
 import { eventCorrections, farmEvents } from "../src/infrastructure/db/schema";
-import { createFarm } from "../src/infrastructure/db/farm-event-repository";
+import { createTestFarm as createFarm } from "./test-helpers";
 
 const migrationFolder = "drizzle";
 

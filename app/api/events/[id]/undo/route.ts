@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   getFarmContext,
   farmCookieHeader,
+  sessionCookieHeader,
   isUuid,
 } from "@/src/application/farm-context";
 import { undoAgentAction } from "@/src/application/persist-farm-event";
@@ -49,8 +50,11 @@ export async function POST(
       parsed.data.correctionId,
     );
     const response = Response.json(saved);
-    if (context.isNew)
-      response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));
+    const cookies: string[] = [];
+    if (context.isNewSession)
+      cookies.push(sessionCookieHeader(context.sessionId));
+    if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
+    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return eventErrorResponse(error);

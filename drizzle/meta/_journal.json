@@ -29,6 +29,13 @@
       "when": 1791820591132,
       "tag": "0003_dizzy_bloodstrike",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1791989935799,
+      "tag": "0004_skinny_screwball",
+      "breakpoints": true
     }
   ]
 }

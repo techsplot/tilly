@@ -61,8 +61,15 @@ function activeEventFilter(farmId: string, eventId: string) {
   );
 }
 
-export async function createFarm(db: Database): Promise<string> {
-  const [farm] = await db.insert(farms).values({}).returning({ id: farms.id });
+export async function createFarm(
+  db: Database,
+  sessionId: string,
+  name: string,
+): Promise<string> {
+  const [farm] = await db
+    .insert(farms)
+    .values({ sessionId, name })
+    .returning({ id: farms.id });
   if (!farm) throw new Error("Farm could not be created.");
   return farm.id;
 }
@@ -74,6 +81,49 @@ export async function findFarm(db: Database, farmId: string): Promise<boolean> {
     .where(eq(farms.id, farmId))
     .limit(1);
   return Boolean(farm);
+}
+
+export async function listFarmsBySession(
+  db: Database,
+  sessionId: string,
+): Promise<Array<{ id: string; name: string; createdAt: Date }>> {
+  return db
+    .select({
+      id: farms.id,
+      name: farms.name,
+      createdAt: farms.createdAt,
+    })
+    .from(farms)
+    .where(eq(farms.sessionId, sessionId))
+    .orderBy(farms.createdAt);
+}
+
+export async function findFarmByIdAndSession(
+  db: Database,
+  farmId: string,
+  sessionId: string,
+): Promise<{ id: string; name: string } | undefined> {
+  const [farm] = await db
+    .select({ id: farms.id, name: farms.name })
+    .from(farms)
+    .where(and(eq(farms.id, farmId), eq(farms.sessionId, sessionId)))
+    .limit(1);
+  return farm;
+}
+
+export async function findFarmByNameAndSession(
+  db: Database,
+  farmName: string,
+  sessionId: string,
+): Promise<Array<{ id: string; name: string }>> {
+  const normalized = farmName.trim().toLowerCase();
+  return db
+    .select({ id: farms.id, name: farms.name })
+    .from(farms)
+    .where(eq(farms.sessionId, sessionId))
+    .then((results) =>
+      results.filter((f) => f.name.toLowerCase() === normalized),
+    );
 }
 
 export async function findFarmEvent(

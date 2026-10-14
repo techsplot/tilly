@@ -26,7 +26,7 @@ import {
   generateReport,
 } from "../src/application/farm-question";
 import { recordAgentEvent } from "../src/application/persist-farm-event";
-import { createFarm } from "../src/infrastructure/db/farm-event-repository";
+import { createTestFarm as createFarm } from "./test-helpers";
 import { eventCorrections, farmEvents } from "../src/infrastructure/db/schema";
 import * as schema from "../src/infrastructure/db/schema";
 

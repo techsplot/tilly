@@ -27,7 +27,7 @@ import {
   fields,
   eventCorrections,
 } from "../src/infrastructure/db/schema";
-import { createFarm } from "../src/infrastructure/db/farm-event-repository";
+import { createTestFarm as createFarm } from "./test-helpers";
 import * as repository from "../src/infrastructure/db/farm-event-repository";
 
 const migrationFolder = "drizzle";

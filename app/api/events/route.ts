@@ -3,6 +3,7 @@ import {
   getExistingFarmId,
   getFarmContext,
   farmCookieHeader,
+  sessionCookieHeader,
 } from "@/src/application/farm-context";
 import {
   listTimeline,
@@ -35,8 +36,11 @@ export async function POST(request: Request): Promise<Response> {
     const context = await getFarmContext(db, request);
     const saved = await recordFarmEvent(db, context.farmId, parsed.data);
     const response = Response.json(saved, { status: 201 });
-    if (context.isNew)
-      response.headers.set("Set-Cookie", farmCookieHeader(context.farmId));
+    const cookies: string[] = [];
+    if (context.isNewSession)
+      cookies.push(sessionCookieHeader(context.sessionId));
+    if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
+    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return eventErrorResponse(error);
