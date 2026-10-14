@@ -16,6 +16,7 @@ export default function HomePage() {
     history,
     historyLoading,
     sendMessage,
+    retry,
     undo,
   } = useFarmAgent();
   const [activeTab, setActiveTab] = useState<"feed" | "history">("feed");
@@ -82,6 +83,7 @@ export default function HomePage() {
             elapsedSeconds={elapsedSeconds}
             error={error}
             onUndo={undo}
+            onRetry={retry}
           />
           <div ref={feedEndRef} />
         </section>

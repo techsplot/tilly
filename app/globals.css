@@ -273,6 +273,22 @@ button:disabled {
   text-decoration: none;
 }
 
+.retry-link {
+  background: transparent;
+  border: 0;
+  color: #9d4035;
+  font-size: 12px;
+  font-weight: 700;
+  margin-top: 6px;
+  padding: 0;
+  text-decoration: underline;
+}
+
+.retry-link:disabled {
+  color: var(--muted);
+  text-decoration: none;
+}
+
 .memory-note {
   color: #526b5b;
   font-size: 13px;

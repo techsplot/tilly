@@ -77,8 +77,25 @@ export type UndoableAgentAction = Extract<
   { type: "recorded" | "corrected" | "deleted" }
 >;
 
+type AgentRequestPayload = {
+  message: string;
+  currentDate: string;
+  pending?: Pending | undefined;
+  recentEventIds: string[];
+};
+
 export type FeedItem =
   | { id: string; kind: "farmer"; text: string }
+  | {
+      id: string;
+      kind: "failed";
+      text: string;
+      error: string;
+      request: AgentRequestPayload;
+      attempts: number;
+      retrying: boolean;
+      nextRetryAt: number;
+    }
   | {
       id: string;
       kind: "action";
@@ -115,6 +132,27 @@ function undoRequestBody(action: UndoableAgentAction): Record<string, unknown> {
     : { action: action.type };
 }
 
+class AgentRequestError extends Error {
+  retryable: boolean;
+
+  constructor(message: string, retryable: boolean) {
+    super(message);
+    this.retryable = retryable;
+  }
+}
+
+const autoRetryDelays = [1200, 3500];
+const manualRetryCooldownMs = 10000;
+const maxManualRetryAttempts = 5;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function isRetryableStatus(status: number): boolean {
+  return [408, 429, 502, 503, 504].includes(status);
+}
+
 async function readErrorMessage(response: Response): Promise<string> {
   try {
     const body: unknown = await response.json();
@@ -129,6 +167,56 @@ async function readErrorMessage(response: Response): Promise<string> {
     // fall through to the generic message
   }
   return "FarmMind could not process that message. Please try again.";
+}
+
+async function postAgentRequest(
+  payload: AgentRequestPayload,
+): Promise<AgentAction[]> {
+  let response: Response;
+  try {
+    response = await fetch("/api/agent", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    throw new AgentRequestError(
+      "Network connection failed. FarmMind could not confirm whether this was saved.",
+      true,
+    );
+  }
+
+  if (!response.ok) {
+    throw new AgentRequestError(
+      await readErrorMessage(response),
+      isRetryableStatus(response.status),
+    );
+  }
+
+  const body: unknown = await response.json();
+  const parsed = agentResponseSchema.safeParse(body);
+  if (!parsed.success)
+    throw new AgentRequestError("FarmMind returned invalid data.", false);
+  return parsed.data.actions;
+}
+
+async function postAgentRequestWithAutoRetry(
+  payload: AgentRequestPayload,
+): Promise<AgentAction[]> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await postAgentRequest(payload);
+    } catch (error) {
+      if (
+        !(error instanceof AgentRequestError) ||
+        !error.retryable ||
+        attempt >= autoRetryDelays.length
+      ) {
+        throw error;
+      }
+      await sleep(autoRetryDelays[attempt]!);
+    }
+  }
 }
 
 export function useFarmAgent() {
@@ -201,10 +289,56 @@ export function useFarmAgent() {
     void offerNudge();
   }, [offerNudge]);
 
+  const applyActions = useCallback(
+    async (actions: AgentAction[]) => {
+      setFeed((prev) => [
+        ...prev,
+        ...actions.map((action) => ({
+          id: newId(),
+          kind: "action" as const,
+          action,
+          undone: false,
+          undoing: false,
+        })),
+      ]);
+
+      const question = actions.find((action) => action.type === "question");
+      if (question?.type === "question") {
+        setPending(question.pending);
+        setLastQuestionText(question.text);
+      } else {
+        setPending(undefined);
+        setLastQuestionText(undefined);
+      }
+
+      const savedIds = actions.filter(isUndoable).map((a) => a.event.id);
+      if (savedIds.length > 0) {
+        setRecentEventIds((prev) =>
+          [...savedIds, ...prev.filter((id) => !savedIds.includes(id))].slice(
+            0,
+            20,
+          ),
+        );
+      }
+
+      if (actions.some((action) => action.type !== "question")) {
+        await refreshHistory();
+        if (!question) await offerNudge();
+      }
+    },
+    [offerNudge, refreshHistory],
+  );
+
   const sendMessage = useCallback(
     async (message: string) => {
       const trimmed = message.trim();
       if (!trimmed || isLoading) return;
+      const request: AgentRequestPayload = {
+        message: trimmed,
+        currentDate: getLocalDateString(),
+        pending,
+        recentEventIds,
+      };
 
       setFeed((prev) => [
         ...prev,
@@ -214,69 +348,86 @@ export function useFarmAgent() {
       setError(null);
 
       try {
-        const response = await fetch("/api/agent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            message: trimmed,
-            currentDate: getLocalDateString(),
-            pending,
-            recentEventIds,
-          }),
-        });
-
-        if (!response.ok) throw new Error(await readErrorMessage(response));
-
-        const body: unknown = await response.json();
-        const parsed = agentResponseSchema.safeParse(body);
-        if (!parsed.success) throw new Error("FarmMind returned invalid data.");
-
-        const actions = parsed.data.actions;
-        setFeed((prev) => [
-          ...prev,
-          ...actions.map((action) => ({
-            id: newId(),
-            kind: "action" as const,
-            action,
-            undone: false,
-            undoing: false,
-          })),
-        ]);
-
-        const question = actions.find((action) => action.type === "question");
-        if (question?.type === "question") {
-          setPending(question.pending);
-          setLastQuestionText(question.text);
-        } else {
-          setPending(undefined);
-          setLastQuestionText(undefined);
-        }
-
-        const savedIds = actions.filter(isUndoable).map((a) => a.event.id);
-        if (savedIds.length > 0) {
-          setRecentEventIds((prev) =>
-            [...savedIds, ...prev.filter((id) => !savedIds.includes(id))].slice(
-              0,
-              20,
-            ),
-          );
-        }
-
-        if (actions.some((action) => action.type !== "question")) {
-          await refreshHistory();
-          if (!question) await offerNudge();
-        }
+        const actions = await postAgentRequestWithAutoRetry(request);
+        await applyActions(actions);
       } catch (caughtError) {
-        setError(
+        const message =
           caughtError instanceof Error
             ? caughtError.message
-            : "Something went wrong. Please try again.",
-        );
+            : "Something went wrong. Please try again.";
+        setFeed((prev) => [
+          ...prev,
+          {
+            id: newId(),
+            kind: "failed",
+            text: trimmed,
+            error: message,
+            request,
+            attempts: 0,
+            retrying: false,
+            nextRetryAt: Date.now() + manualRetryCooldownMs,
+          },
+        ]);
+        await refreshHistory();
       } finally {
         setIsLoading(false);
       }
     },
-    [isLoading, pending, recentEventIds, refreshHistory, offerNudge],
+    [applyActions, isLoading, pending, recentEventIds, refreshHistory],
+  );
+
+  const retry = useCallback(
+    async (itemId: string) => {
+      const failed = feed.find(
+        (item): item is Extract<FeedItem, { kind: "failed" }> =>
+          item.id === itemId && item.kind === "failed",
+      );
+      if (
+        !failed ||
+        failed.retrying ||
+        failed.nextRetryAt > Date.now() ||
+        failed.attempts >= maxManualRetryAttempts
+      )
+        return;
+
+      setFeed((prev) =>
+        prev.map((item) =>
+          item.id === itemId && item.kind === "failed"
+            ? { ...item, retrying: true, attempts: item.attempts + 1 }
+            : item,
+        ),
+      );
+      setIsLoading(true);
+      setError(null);
+
+      try {
+        await refreshHistory();
+        const actions = await postAgentRequestWithAutoRetry(failed.request);
+        setFeed((prev) => prev.filter((item) => item.id !== itemId));
+        await applyActions(actions);
+      } catch (caughtError) {
+        const message =
+          caughtError instanceof Error
+            ? caughtError.message
+            : "Something went wrong. Please try again.";
+        setFeed((prev) =>
+          prev.map((item) =>
+            item.id === itemId && item.kind === "failed"
+              ? {
+                  ...item,
+                  retrying: false,
+                  error: message,
+                  nextRetryAt: Date.now() + manualRetryCooldownMs,
+                }
+              : item,
+          ),
+        );
+        await refreshHistory();
+      } finally {
+        setIsLoading(false);
+      }
+    },
+    [applyActions, feed, refreshHistory],
   );
 
   const undo = useCallback(
@@ -333,6 +484,7 @@ export function useFarmAgent() {
     history,
     historyLoading,
     sendMessage,
+    retry,
     undo,
   };
 }

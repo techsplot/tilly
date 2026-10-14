@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type {
   FeedItem,
   SavedFarmEvent,
@@ -149,19 +150,66 @@ function ActionCard({
   );
 }
 
+function FailedCard({
+  item,
+  now,
+  onRetry,
+}: {
+  item: Extract<FeedItem, { kind: "failed" }>;
+  now: number;
+  onRetry: (itemId: string) => void;
+}) {
+  const waitSeconds = Math.max(0, Math.ceil((item.nextRetryAt - now) / 1000));
+  const retryLimitReached = item.attempts >= 5;
+  const retryDisabled = item.retrying || waitSeconds > 0 || retryLimitReached;
+
+  return (
+    <article className="feed-card feed-error" role="alert">
+      <span className="feed-icon">!</span>
+      <div>
+        <p>{item.error}</p>
+        <button
+          type="button"
+          className="retry-link"
+          onClick={() => onRetry(item.id)}
+          disabled={retryDisabled}
+        >
+          {item.retrying
+            ? "Retrying..."
+            : retryLimitReached
+              ? "Retry limit reached"
+              : waitSeconds > 0
+                ? `Retry in ${waitSeconds}s`
+                : "Retry"}
+        </button>
+      </div>
+    </article>
+  );
+}
+
 export default function AgentFeed({
   items,
   isLoading,
   elapsedSeconds,
   error,
   onUndo,
+  onRetry,
 }: {
   items: FeedItem[];
   isLoading: boolean;
   elapsedSeconds: number;
   error: string | null;
   onUndo: (itemId: string, action: UndoableAgentAction) => void;
+  onRetry: (itemId: string) => void;
 }) {
+  const [now, setNow] = useState(Date.now());
+
+  useEffect(() => {
+    if (!items.some((item) => item.kind === "failed")) return;
+    const interval = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(interval);
+  }, [items]);
+
   return (
     <div className="agent-feed" aria-live="polite">
       {items.length === 0 && !isLoading && (
@@ -174,6 +222,8 @@ export default function AgentFeed({
           <article key={item.id} className="feed-card feed-farmer">
             <p>{item.text}</p>
           </article>
+        ) : item.kind === "failed" ? (
+          <FailedCard key={item.id} item={item} now={now} onRetry={onRetry} />
         ) : (
           <ActionCard key={item.id} item={item} onUndo={onUndo} />
         ),
