@@ -2,6 +2,8 @@ import OpenAI from "openai";
 
 export type ModelRole = "extraction" | "answer";
 
+export class ModelConfigurationError extends Error {}
+
 export function createNebiusClient(): OpenAI {
   const apiKey = process.env.NEBIUS_API_KEY;
   const baseURL =
@@ -24,7 +26,7 @@ function getModelForRole(role: ModelRole): string {
     (role === "extraction" ? process.env.NEBIUS_MODEL : undefined);
 
   if (!model) {
-    throw new Error(
+    throw new ModelConfigurationError(
       `${envVar} is required. Set it to a permitted NVIDIA model available to your Nebius account.`,
     );
   }

@@ -221,27 +221,34 @@ function FailedCard({
 }) {
   const waitSeconds = Math.max(0, Math.ceil((item.nextRetryAt - now) / 1000));
   const retryLimitReached = item.attempts >= 5;
-  const retryDisabled = item.retrying || waitSeconds > 0 || retryLimitReached;
+  const retryDisabled =
+    !item.retryable || item.retrying || waitSeconds > 0 || retryLimitReached;
 
   return (
     <article className="feed-card feed-error" role="alert">
       <span className="feed-icon">!</span>
       <div>
         <p>{item.error}</p>
-        <button
-          type="button"
-          className="retry-link"
-          onClick={() => onRetry(item.id)}
-          disabled={retryDisabled}
-        >
-          {item.retrying
-            ? "Retrying..."
-            : retryLimitReached
-              ? "Retry limit reached"
-              : waitSeconds > 0
-                ? `Retry in ${waitSeconds}s`
-                : "Retry"}
-        </button>
+        {item.retryable ? (
+          <button
+            type="button"
+            className="retry-link"
+            onClick={() => onRetry(item.id)}
+            disabled={retryDisabled}
+          >
+            {item.retrying
+              ? "Retrying..."
+              : retryLimitReached
+                ? "Retry limit reached"
+                : waitSeconds > 0
+                  ? `Retry in ${waitSeconds}s`
+                  : "Retry"}
+          </button>
+        ) : (
+          <span className="retry-link retry-unavailable">
+            Retry unavailable
+          </span>
+        )}
       </div>
     </article>
   );

@@ -107,6 +107,7 @@ export type FeedItem =
       text: string;
       error: string;
       request: AgentRequestPayload;
+      retryable: boolean;
       attempts: number;
       retrying: boolean;
       nextRetryAt: number;
@@ -371,6 +372,10 @@ export function useFarmAgent() {
         const actions = await postAgentRequestWithAutoRetry(request);
         await applyActions(actions);
       } catch (caughtError) {
+        const retryable =
+          caughtError instanceof AgentRequestError
+            ? caughtError.retryable
+            : false;
         const message =
           caughtError instanceof Error
             ? caughtError.message
@@ -383,6 +388,7 @@ export function useFarmAgent() {
             text: trimmed,
             error: message,
             request,
+            retryable,
             attempts: 0,
             retrying: false,
             nextRetryAt: Date.now() + manualRetryCooldownMs,
@@ -404,6 +410,7 @@ export function useFarmAgent() {
       );
       if (
         !failed ||
+        !failed.retryable ||
         failed.retrying ||
         failed.nextRetryAt > Date.now() ||
         failed.attempts >= maxManualRetryAttempts
@@ -437,6 +444,10 @@ export function useFarmAgent() {
                   ...item,
                   retrying: false,
                   error: message,
+                  retryable:
+                    caughtError instanceof AgentRequestError
+                      ? caughtError.retryable
+                      : false,
                   nextRetryAt: Date.now() + manualRetryCooldownMs,
                 }
               : item,
