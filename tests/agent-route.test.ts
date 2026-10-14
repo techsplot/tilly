@@ -16,6 +16,7 @@ vi.mock("../src/application/farm-agent", () => ({
 }));
 
 import { APIConnectionTimeoutError } from "openai";
+import { ModelConfigurationError } from "../src/infrastructure/nebius/nebius-client";
 import { POST } from "../app/api/agent/route";
 
 const request = (body: BodyInit) =>
@@ -164,6 +165,28 @@ describe("agent route", () => {
       ),
     );
     expect(response.status).toBe(504);
+  });
+
+  it("returns a clear setup error when the answer model is not configured", async () => {
+    mockHandleFarmerMessage.mockRejectedValue(
+      new ModelConfigurationError("NEBIUS_MODEL_ANSWER is required."),
+    );
+
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "what record do i have today",
+          currentDate: "2026-10-12",
+          recentEventIds: [],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "FarmMind is not fully configured for questions and reports. Set the answer model and try again.",
+    });
   });
 
   it("returns 502 without exposing internal errors", async () => {

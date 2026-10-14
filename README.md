@@ -32,7 +32,7 @@ application never trusts that output directly:
 Working today:
 
 - **Agent mode: save first, ask almost never.** A farmer types a message;
-  `POST /api/agent` decides the intent (record, correct, delete, or other)
+  `POST /api/agent` decides the intent (record, correct, delete, question, report)
   with one Nemotron call. Only the activity is required to save — crop,
   field, and a specific time are kept when said and left empty when not,
   and a missing date is assumed to be today. The record saves at once as
@@ -76,6 +76,14 @@ Working today:
 - Phase 4's confirmed-history retrieval for contextual references, with
   deterministic evidence verification and provenance tracking, feeds the
   agent's memory resolution.
+- **Phase 6: Ask and report.** Farmer can ask about their farm ("when did I
+  last spray?") or request a report ("what did I do this week?"). The agent
+  extracts a restricted filter (activity, crop, field, date range), runs
+  deterministic SQL to count and group records, then Nemotron Ultra (or
+  Super) writes a short plain-language answer citing the specific records.
+  Extraction uses `nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B` via
+  `NEBIUS_MODEL_EXTRACTION`; answer wording uses `NEBIUS_MODEL_ANSWER` (or
+  Super). "I can't tell from your records" when records don't answer.
 - `/api/extract-event`, `POST /api/events`, and the `confirm`/`reject`/`PATCH`
   event routes still work and are covered by tests, but the UI no longer calls
   them; they remain for direct API use (for example the earlier
@@ -177,6 +185,23 @@ tool was chosen, what can fail, and how we measured the result.
 
 For the project-specific learning and architecture instructions, use the
 `FieldLedger Learning Engineer` custom agent in `.github/agents/`.
+
+## Model routing
+
+FarmMind follows the hackathon guidance: Nemotron Nano for fast, everyday
+calls (intent/filter extraction) and Nemotron Ultra (or Super) for reasoning
+over farm history when generating answers. Each role has its own environment
+variable:
+
+- `NEBIUS_MODEL_EXTRACTION` — Nano model (`nvidia/NVIDIA-Nemotron-3-Nano-30B-A3B`)
+  for intent detection and filter extraction from farmer messages. This runs on
+  every user message.
+- `NEBIUS_MODEL_ANSWER` — Ultra or Super model for writing plain-language
+  answers from deterministic SQL results. This runs only when the farmer asks
+  a question or requests a report.
+
+Both environment variables are optional; the app fails explicitly if either
+is missing and a question/report intent is triggered.
 
 ## License
 

@@ -27,7 +27,7 @@ You extract farm activities from a farmer's message.
 
 Return JSON only with this exact shape:
 {
-  "intent": "record|correct|delete|other",
+  "intent": "record|correct|delete|question|report|other",
   "events": [
     {
       "activity": "planting|fertilizing|weeding|spraying|harvesting|inspection|irrigation|other",
@@ -47,7 +47,15 @@ Return JSON only with this exact shape:
   "clarificationQuestion": "string or null",
   "followUpQuestion": "string or null",
   "correction": { "changes": { "crop": "string or null", "field": "string or null", "eventDate": "YYYY-MM-DD or null", "quantity": "number or null", "unit": "string or null", "eventTime": "HH:MM or null", "timeOfDay": "morning|afternoon|evening|night or null" } } or null,
-  "skip": "boolean"
+  "skip": "boolean",
+  "filter": {
+    "activity": "planting|fertilizing|weeding|spraying|harvesting|inspection|irrigation|other or null",
+    "crop": "string or null",
+    "field": "string or null",
+    "dateFrom": "YYYY-MM-DD or null",
+    "dateTo": "YYYY-MM-DD or null",
+    "reportType": "summary|by_activity|by_field|by_crop|by_day or null"
+  } or null
 }
 
 Use the current date supplied by the application to resolve relative dates.
@@ -85,10 +93,16 @@ intent is "record" for a farm activity, including an answer to a pending
 question; "correct" when the farmer changes a value of something already
 recorded ("no, it was the north field", "it was yesterday, not today", "it
 was in the evening"); "delete" when the farmer wants the last record removed
-("delete that", "that was wrong, remove it"); otherwise "other" (questions,
-reminders, greetings, anything else). For "correct", set correction.changes
-to only the fields the farmer wants changed, and leave events empty. For
-"delete" or "other", leave events and correction empty.
+("delete that", "that was wrong, remove it"); "question" when the farmer asks
+about their farm history ("when did I last spray?", "what did I plant in the
+north field?"); "report" when the farmer asks for a summary ("what did I do
+this week?", "give me a report for October"); otherwise "other" (reminders,
+greetings, anything else). For "correct", set correction.changes to only the
+fields the farmer wants changed, and leave events empty. For "delete" or
+"other", leave events and correction empty. For "question" or "report", set
+filter to the structured filter with only the fields mentioned (activity,
+crop, field, dateFrom, dateTo, reportType); leave events and correction
+empty.
 
 farmMemory is the farmer's own confirmed history. Use it only to resolve
 references in the message such as "that field", "the maize", or "same place
@@ -197,7 +211,7 @@ export async function extractFarmEvent(
     userContent.farmMemory = farmMemory;
 
   const response = await client.chat.completions.create({
-    model: getNebiusModel(),
+    model: getNebiusModel("extraction"),
     temperature: 0,
     response_format: { type: "json_object" },
     messages: [

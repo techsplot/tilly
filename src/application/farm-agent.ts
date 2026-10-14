@@ -4,6 +4,8 @@ import {
   LifecycleError,
   ValidationError,
   type FarmEvent,
+  type QuestionFilter,
+  type ReportFilter,
 } from "../domain/farm-event";
 import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
@@ -16,6 +18,11 @@ import {
   type SavedFarmEvent,
   type UndoableAction,
 } from "./persist-farm-event";
+import {
+  answerQuestion,
+  generateReport,
+  type CitedRecord,
+} from "./farm-question";
 import {
   findFirstOwnedActiveEvent,
   findNudgeCandidate,
@@ -75,7 +82,8 @@ export type AgentAction =
     }
   | { type: "deleted"; event: SavedFarmEvent }
   | { type: "question"; text: string; pending: Pending }
-  | { type: "reply"; text: string };
+  | { type: "reply"; text: string }
+  | { type: "answer"; text: string; citedRecords: CitedRecord[] };
 
 export type HandleFarmerMessageInput = {
   message: string;
@@ -87,9 +95,9 @@ export type HandleFarmerMessageInput = {
 const NOTHING_TO_TARGET_REPLY =
   "I don't have a recent record to change. Tell me what you did.";
 const UNSUPPORTED_REPLY =
-  "I can record farm activities for now. Questions and reminders are coming soon.";
+  "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.";
 const UNDERSTOOD_NOTHING_REPLY =
-  "I did not understand that. Please describe a farm activity.";
+  "I did not understand that. Please describe a farm activity, ask a question, or request a report.";
 const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
 const GAP_LEFT_AS_IS_REPLY = "OK, I'll leave that record as it is for now.";
 const CORRECTION_QUESTION = "What should I change it to?";
@@ -482,6 +490,7 @@ async function routeInteraction(
     events: FarmEvent[];
     followUpQuestion?: string | null | undefined;
     correction?: { changes: Record<string, unknown> } | null | undefined;
+    filter?: QuestionFilter | ReportFilter | null | undefined;
   },
   recentEventIds: string[],
 ): Promise<AgentAction[]> {
@@ -495,6 +504,33 @@ async function routeInteraction(
     );
   if (interaction.intent === "delete")
     return applyDelete(db, farmId, recentEventIds);
+  if (interaction.intent === "question") {
+    if (!interaction.filter) {
+      return [
+        { type: "reply", text: "I need to know what you're asking about." },
+      ];
+    }
+    const filter = interaction.filter as QuestionFilter;
+    const result = await answerQuestion(db, farmId, filter);
+    return [
+      { type: "answer", text: result.text, citedRecords: result.citedRecords },
+    ];
+  }
+  if (interaction.intent === "report") {
+    if (!interaction.filter) {
+      return [
+        {
+          type: "reply",
+          text: "I need to know what to include in the report.",
+        },
+      ];
+    }
+    const filter = interaction.filter as ReportFilter;
+    const result = await generateReport(db, farmId, filter);
+    return [
+      { type: "answer", text: result.text, citedRecords: result.citedRecords },
+    ];
+  }
   if (interaction.intent === "other")
     return [{ type: "reply", text: UNSUPPORTED_REPLY }];
   return applyRecordFlow(

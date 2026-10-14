@@ -716,7 +716,7 @@ describe("farm agent service", () => {
 
     expect(actions[0]).toEqual({
       type: "reply",
-      text: "I can record farm activities for now. Questions and reminders are coming soon.",
+      text: "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.",
     });
     expect(await listTimeline(db, farmId)).toEqual([]);
   });

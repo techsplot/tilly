@@ -45,6 +45,16 @@ const pendingSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("correction"), eventId: z.string() }),
 ]);
 
+const citedRecordSchema = z.object({
+  id: z.string(),
+  activity: z.string(),
+  crop: z.string().nullable(),
+  field: z.string().nullable(),
+  eventDate: z.string().nullable(),
+  eventTime: z.string().nullable(),
+  timeOfDay: z.string().nullable(),
+});
+
 const agentActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("recorded"),
@@ -64,6 +74,11 @@ const agentActionSchema = z.discriminatedUnion("type", [
     pending: pendingSchema,
   }),
   z.object({ type: z.literal("reply"), text: z.string() }),
+  z.object({
+    type: z.literal("answer"),
+    text: z.string(),
+    citedRecords: z.array(citedRecordSchema),
+  }),
 ]);
 
 const agentResponseSchema = z.object({ actions: z.array(agentActionSchema) });
@@ -92,6 +107,7 @@ export type FeedItem =
       text: string;
       error: string;
       request: AgentRequestPayload;
+      retryable: boolean;
       attempts: number;
       retrying: boolean;
       nextRetryAt: number;
@@ -302,10 +318,15 @@ export function useFarmAgent() {
         })),
       ]);
 
-      const question = actions.find((action) => action.type === "question");
+      const question = actions.find(
+        (action) => action.type === "question" || action.type === "answer",
+      );
       if (question?.type === "question") {
         setPending(question.pending);
         setLastQuestionText(question.text);
+      } else if (question?.type === "answer") {
+        setPending(undefined);
+        setLastQuestionText(undefined);
       } else {
         setPending(undefined);
         setLastQuestionText(undefined);
@@ -351,6 +372,10 @@ export function useFarmAgent() {
         const actions = await postAgentRequestWithAutoRetry(request);
         await applyActions(actions);
       } catch (caughtError) {
+        const retryable =
+          caughtError instanceof AgentRequestError
+            ? caughtError.retryable
+            : false;
         const message =
           caughtError instanceof Error
             ? caughtError.message
@@ -363,6 +388,7 @@ export function useFarmAgent() {
             text: trimmed,
             error: message,
             request,
+            retryable,
             attempts: 0,
             retrying: false,
             nextRetryAt: Date.now() + manualRetryCooldownMs,
@@ -384,6 +410,7 @@ export function useFarmAgent() {
       );
       if (
         !failed ||
+        !failed.retryable ||
         failed.retrying ||
         failed.nextRetryAt > Date.now() ||
         failed.attempts >= maxManualRetryAttempts
@@ -417,6 +444,10 @@ export function useFarmAgent() {
                   ...item,
                   retrying: false,
                   error: message,
+                  retryable:
+                    caughtError instanceof AgentRequestError
+                      ? caughtError.retryable
+                      : false,
                   nextRetryAt: Date.now() + manualRetryCooldownMs,
                 }
               : item,
