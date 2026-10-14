@@ -89,65 +89,31 @@ export const correctionChangesSchema = z.object({
   timeOfDay: farmTimeOfDaySchema.nullable().optional(),
 });
 
-export const farmInteractionSchema = z
-  .object({
-    intent: agentIntentSchema.optional().default("record"),
-    events: z.array(farmEventCandidateSchema),
-    clarificationRequired: z.boolean(),
-    clarificationQuestion: z.string().nullable(),
-    followUpQuestion: z.string().nullable().optional(),
-    correction: z
-      .object({ changes: correctionChangesSchema })
-      .nullable()
-      .optional(),
-    skip: z.boolean().optional().default(false),
-  })
-  .refine(
-    (data) => {
-      if (data.clarificationRequired && data.clarificationQuestion === null)
-        return false;
-      if (
-        data.clarificationRequired &&
-        data.clarificationQuestion?.trim() === ""
-      )
-        return false;
-      return true;
-    },
-    {
-      message:
-        "clarificationQuestion is required when clarificationRequired is true",
-    },
-  );
+export const farmInteractionSchema = z.object({
+  intent: agentIntentSchema.optional().default("record"),
+  events: z.array(farmEventCandidateSchema),
+  clarificationRequired: z.boolean(),
+  clarificationQuestion: z.string().nullable(),
+  followUpQuestion: z.string().nullable().optional(),
+  correction: z
+    .object({ changes: correctionChangesSchema })
+    .nullable()
+    .optional(),
+  skip: z.boolean().optional().default(false),
+});
 
-export const farmInteractionResultSchema = z
-  .object({
-    intent: agentIntentSchema.optional().default("record"),
-    events: z.array(farmEventSchema),
-    clarificationRequired: z.boolean(),
-    clarificationQuestion: z.string().nullable(),
-    followUpQuestion: z.string().nullable().optional(),
-    correction: z
-      .object({ changes: correctionChangesSchema })
-      .nullable()
-      .optional(),
-    skip: z.boolean().optional().default(false),
-  })
-  .refine(
-    (data) => {
-      if (data.clarificationRequired && data.clarificationQuestion === null)
-        return false;
-      if (
-        data.clarificationRequired &&
-        data.clarificationQuestion?.trim() === ""
-      )
-        return false;
-      return true;
-    },
-    {
-      message:
-        "clarificationQuestion is required when clarificationRequired is true",
-    },
-  );
+export const farmInteractionResultSchema = z.object({
+  intent: agentIntentSchema.optional().default("record"),
+  events: z.array(farmEventSchema),
+  clarificationRequired: z.boolean(),
+  clarificationQuestion: z.string().nullable(),
+  followUpQuestion: z.string().nullable().optional(),
+  correction: z
+    .object({ changes: correctionChangesSchema })
+    .nullable()
+    .optional(),
+  skip: z.boolean().optional().default(false),
+});
 
 // Required-field policy by activity (used by domain functions)
 export const requiredFieldsByActivity: Record<

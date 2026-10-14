@@ -139,24 +139,24 @@ describe("farm interaction result schema", () => {
     expect(result.success).toBe(false);
   });
 
-  it("rejects clarificationRequired true with null question", () => {
+  it("accepts clarificationRequired true with null question", () => {
     const result = farmInteractionResultSchema.safeParse({
       events: [],
       clarificationRequired: true,
       clarificationQuestion: null,
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 
-  it("rejects clarificationRequired true with blank question", () => {
+  it("accepts clarificationRequired true with blank question", () => {
     const result = farmInteractionResultSchema.safeParse({
       events: [],
       clarificationRequired: true,
       clarificationQuestion: "  ",
     });
 
-    expect(result.success).toBe(false);
+    expect(result.success).toBe(true);
   });
 });
 
@@ -801,6 +801,27 @@ describe("agent intent schema", () => {
     if (result.success) {
       expect(result.data.skip).toBe(true);
     }
+  });
+
+  it("accepts Phase 5 follow-up wording when clarificationQuestion is null", () => {
+    const result = farmInteractionSchema.safeParse({
+      intent: "record",
+      events: [
+        {
+          activity: "planting",
+          crop: "maize",
+          field: null,
+          eventDate: null,
+          quantity: null,
+          unit: null,
+        },
+      ],
+      clarificationRequired: true,
+      clarificationQuestion: null,
+      followUpQuestion: "Got it, planting maize. Which field was it, and when?",
+    });
+
+    expect(result.success).toBe(true);
   });
 });
 
