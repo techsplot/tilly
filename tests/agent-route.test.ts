@@ -111,6 +111,22 @@ describe("agent route", () => {
     expect(response.status).toBe(400);
   });
 
+  it("rejects malformed event ids before calling the agent", async () => {
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "river field",
+          currentDate: "2026-10-12",
+          pending: { kind: "correction", eventId: "not-a-uuid" },
+          recentEventIds: ["also-not-a-uuid"],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(400);
+    expect(mockHandleFarmerMessage).not.toHaveBeenCalled();
+  });
+
   it("returns 400 for invalid JSON", async () => {
     const response = await POST(request("{bad"));
     expect(response.status).toBe(400);

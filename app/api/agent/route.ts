@@ -20,6 +20,8 @@ const clarificationsSchema = z
   )
   .max(3, "Maximum 3 clarifications allowed");
 
+const eventIdSchema = z.uuid("Event id must be a valid UUID");
+
 // Mirrors the PendingEvent kept server-side; the client sends it back
 // exactly as received (finding 2), never touching it.
 const pendingEventSchema = z.object({
@@ -50,11 +52,11 @@ const pendingSchema = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("gap"),
-    eventId: z.string(),
+    eventId: eventIdSchema,
   }),
   z.object({
     kind: z.literal("correction"),
-    eventId: z.string(),
+    eventId: eventIdSchema,
   }),
 ]);
 
@@ -67,7 +69,7 @@ const agentRequestSchema = z.object({
   currentDate: z.iso.date("A date in YYYY-MM-DD format is required"),
   pending: pendingSchema.optional(),
   recentEventIds: z
-    .array(z.string())
+    .array(eventIdSchema)
     .max(20, "Maximum 20 recent event ids allowed")
     .default([]),
 });
