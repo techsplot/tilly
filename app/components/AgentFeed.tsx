@@ -6,6 +6,7 @@ import type {
   SavedFarmEvent,
   UndoableAgentAction,
 } from "@/app/hooks/useFarmAgent";
+import type { CitedRecord } from "@/src/application/farm-question";
 
 function formatDate(isoDate: string | null): string {
   if (!isoDate) return "no date";
@@ -77,6 +78,52 @@ function deletedSummary(event: SavedFarmEvent): string {
   return `Deleted: ${event.activity} · ${event.field ?? "no field"} · ${formatDate(event.eventDate)}`;
 }
 
+function formatCitedRecord(record: {
+  activity: string;
+  crop: string | null;
+  field: string | null;
+  eventDate: string | null;
+  eventTime: string | null;
+  timeOfDay: string | null;
+}): string {
+  const parts = [record.activity];
+  if (record.crop) parts.push(record.crop);
+  if (record.field) parts.push(record.field);
+  if (record.eventDate) parts.push(`on ${formatDate(record.eventDate)}`);
+  if (record.eventTime) parts.push(`at ${record.eventTime}`);
+  else if (record.timeOfDay) parts.push(record.timeOfDay);
+  return parts.join(" · ");
+}
+
+function AnswerCard({
+  action,
+}: {
+  action: Extract<FeedItem, { kind: "action"; type: "answer" }>["action"];
+}) {
+  const answeredAction = action as {
+    text: string;
+    citedRecords: CitedRecord[];
+  };
+  return (
+    <article className="feed-card feed-answer">
+      <span className="feed-icon">💬</span>
+      <div>
+        <p>{answeredAction.text}</p>
+        {answeredAction.citedRecords.length > 0 && (
+          <div className="cited-records">
+            <p className="cited-label">Based on:</p>
+            <ul>
+              {answeredAction.citedRecords.map((record) => (
+                <li key={record.id}>{formatCitedRecord(record)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </article>
+  );
+}
+
 function ActionCard({
   item,
   onUndo,
@@ -100,6 +147,19 @@ function ActionCard({
       <article className="feed-card feed-reply">
         <p>{action.text}</p>
       </article>
+    );
+  }
+
+  if (action.type === "answer") {
+    return (
+      <AnswerCard
+        action={
+          action as Extract<
+            FeedItem,
+            { kind: "action"; type: "answer" }
+          >["action"]
+        }
+      />
     );
   }
 

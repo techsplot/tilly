@@ -1,6 +1,20 @@
-import { and, desc, eq, gte, inArray, isNull, lte, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  sql,
+  count,
+} from "drizzle-orm";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
-import type { FarmEvent } from "../../domain/farm-event";
+import type {
+  FarmEvent,
+  QuestionFilter as QuestionFilterType,
+  ReportFilter as ReportFilterType,
+} from "../../domain/farm-event";
 import {
   eventCorrections,
   farmEvents,
@@ -450,4 +464,129 @@ export async function stopNudges(
     .update(farmEvents)
     .set({ nudgesStopped: true })
     .where(and(eq(farmEvents.farmId, farmId), eq(farmEvents.id, eventId)));
+}
+
+function buildEventFilterConditions(
+  farmId: string,
+  filter: QuestionFilterType | ReportFilterType,
+) {
+  const conditions = [
+    eq(farmEvents.farmId, farmId),
+    inArray(farmEvents.status, ["confirmed", "corrected"]),
+    isNull(farmEvents.deletedAt),
+  ];
+
+  if (filter.activity) {
+    conditions.push(eq(farmEvents.activity, filter.activity));
+  }
+  if (filter.crop) {
+    conditions.push(eq(farmEvents.crop, filter.crop));
+  }
+  if (filter.field) {
+    conditions.push(eq(farmEvents.fieldName, filter.field));
+  }
+  if (filter.dateFrom) {
+    conditions.push(gte(farmEvents.eventDate, filter.dateFrom));
+  }
+  if (filter.dateTo) {
+    conditions.push(lte(farmEvents.eventDate, filter.dateTo));
+  }
+
+  return and(...conditions);
+}
+
+export async function queryEvents(
+  db: Database,
+  farmId: string,
+  filter: QuestionFilterType,
+  limit = 50,
+): Promise<FarmEventRow[]> {
+  const whereClause = buildEventFilterConditions(farmId, filter);
+  return db
+    .select()
+    .from(farmEvents)
+    .where(whereClause)
+    .orderBy(
+      sql`${farmEvents.eventDate} DESC NULLS LAST`,
+      desc(farmEvents.createdAt),
+    )
+    .limit(limit);
+}
+
+export async function aggregateReport(
+  db: Database,
+  farmId: string,
+  filter: ReportFilterType,
+): Promise<{
+  byActivity: Record<string, number>;
+  byField: Record<string, number>;
+  byCrop: Record<string, number>;
+  byDay: Record<string, number>;
+  total: number;
+}> {
+  const whereClause = buildEventFilterConditions(farmId, filter);
+
+  const [byActivityRows, byFieldRows, byCropRows, byDayRows, totalRows] =
+    await Promise.all([
+      db
+        .select({
+          activity: farmEvents.activity,
+          count: count(),
+        })
+        .from(farmEvents)
+        .where(whereClause)
+        .groupBy(farmEvents.activity),
+      db
+        .select({
+          field: farmEvents.fieldName,
+          count: count(),
+        })
+        .from(farmEvents)
+        .where(whereClause)
+        .groupBy(farmEvents.fieldName),
+      db
+        .select({
+          crop: farmEvents.crop,
+          count: count(),
+        })
+        .from(farmEvents)
+        .where(whereClause)
+        .groupBy(farmEvents.crop),
+      db
+        .select({
+          eventDate: farmEvents.eventDate,
+          count: count(),
+        })
+        .from(farmEvents)
+        .where(whereClause)
+        .groupBy(farmEvents.eventDate),
+      db.select({ count: count() }).from(farmEvents).where(whereClause),
+    ]);
+
+  const byActivity: Record<string, number> = {};
+  for (const row of byActivityRows) {
+    byActivity[row.activity] = Number(row.count);
+  }
+
+  const byField: Record<string, number> = {};
+  for (const row of byFieldRows) {
+    const key = row.field ?? "no field";
+    byField[key] = Number(row.count);
+  }
+
+  const byCrop: Record<string, number> = {};
+  for (const row of byCropRows) {
+    const key = row.crop ?? "no crop";
+    byCrop[key] = Number(row.count);
+  }
+
+  const byDay: Record<string, number> = {};
+  for (const row of byDayRows) {
+    const key = row.eventDate ?? "no date";
+    byDay[key] = Number(row.count);
+  }
+
+  const total = totalRows[0] ? Number(totalRows[0].count) : 0;
+
+  return { byActivity, byField, byCrop, byDay, total };
 }

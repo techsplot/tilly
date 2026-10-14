@@ -45,6 +45,16 @@ const pendingSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("correction"), eventId: z.string() }),
 ]);
 
+const citedRecordSchema = z.object({
+  id: z.string(),
+  activity: z.string(),
+  crop: z.string().nullable(),
+  field: z.string().nullable(),
+  eventDate: z.string().nullable(),
+  eventTime: z.string().nullable(),
+  timeOfDay: z.string().nullable(),
+});
+
 const agentActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("recorded"),
@@ -64,6 +74,11 @@ const agentActionSchema = z.discriminatedUnion("type", [
     pending: pendingSchema,
   }),
   z.object({ type: z.literal("reply"), text: z.string() }),
+  z.object({
+    type: z.literal("answer"),
+    text: z.string(),
+    citedRecords: z.array(citedRecordSchema),
+  }),
 ]);
 
 const agentResponseSchema = z.object({ actions: z.array(agentActionSchema) });
@@ -302,10 +317,15 @@ export function useFarmAgent() {
         })),
       ]);
 
-      const question = actions.find((action) => action.type === "question");
+      const question = actions.find(
+        (action) => action.type === "question" || action.type === "answer",
+      );
       if (question?.type === "question") {
         setPending(question.pending);
         setLastQuestionText(question.text);
+      } else if (question?.type === "answer") {
+        setPending(undefined);
+        setLastQuestionText(undefined);
       } else {
         setPending(undefined);
         setLastQuestionText(undefined);

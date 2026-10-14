@@ -24,6 +24,14 @@ const eventTimePattern = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 // layer rather than failing the whole response (see isValidEventTime).
 export const eventTimeSchema = z.string().nullable();
 
+export const reportTypeSchema = z.enum([
+  "summary",
+  "by_activity",
+  "by_field",
+  "by_crop",
+  "by_day",
+]);
+
 export function isValidEventTime(value: string): boolean {
   return eventTimePattern.test(value);
 }
@@ -76,6 +84,8 @@ export const agentIntentSchema = z.enum([
   "record",
   "correct",
   "delete",
+  "question",
+  "report",
   "other",
 ]);
 
@@ -100,6 +110,17 @@ export const farmInteractionSchema = z.object({
     .nullable()
     .optional(),
   skip: z.boolean().optional().default(false),
+  filter: z
+    .object({
+      activity: farmActivitySchema.nullable().optional(),
+      crop: z.string().trim().min(1).nullable().optional(),
+      field: z.string().trim().min(1).nullable().optional(),
+      dateFrom: z.iso.date().nullable().optional(),
+      dateTo: z.iso.date().nullable().optional(),
+      reportType: reportTypeSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 
 export const farmInteractionResultSchema = z.object({
@@ -113,7 +134,48 @@ export const farmInteractionResultSchema = z.object({
     .nullable()
     .optional(),
   skip: z.boolean().optional().default(false),
+  filter: z
+    .object({
+      activity: farmActivitySchema.nullable().optional(),
+      crop: z.string().trim().min(1).nullable().optional(),
+      field: z.string().trim().min(1).nullable().optional(),
+      dateFrom: z.iso.date().nullable().optional(),
+      dateTo: z.iso.date().nullable().optional(),
+      reportType: reportTypeSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
 });
+
+// Question/Report filter schema - restricted structured filter for questions and reports
+export const questionFilterSchema = z.object({
+  activity: farmActivitySchema.nullable().optional(),
+  crop: z.string().trim().min(1).nullable().optional(),
+  field: z.string().trim().min(1).nullable().optional(),
+  dateFrom: z.iso.date().nullable().optional(),
+  dateTo: z.iso.date().nullable().optional(),
+});
+
+export const reportFilterSchema = questionFilterSchema.extend({
+  reportType: reportTypeSchema.optional().default("summary"),
+});
+
+export type QuestionFilter = z.infer<typeof questionFilterSchema>;
+export type ReportFilter = z.infer<typeof reportFilterSchema>;
+export type ReportType = z.infer<typeof reportTypeSchema>;
+
+export const questionAnswerSchema = z.object({
+  intent: z.literal("question"),
+  filter: questionFilterSchema,
+});
+
+export const reportAnswerSchema = z.object({
+  intent: z.literal("report"),
+  filter: reportFilterSchema,
+});
+
+export type QuestionAnswer = z.infer<typeof questionAnswerSchema>;
+export type ReportAnswer = z.infer<typeof reportAnswerSchema>;
 
 // Required-field policy by activity (used by domain functions)
 export const requiredFieldsByActivity: Record<
