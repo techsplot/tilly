@@ -55,11 +55,18 @@ const citedRecordSchema = z.object({
   timeOfDay: z.string().nullable(),
 });
 
+const suggestionSchema = z.object({
+  type: z.enum(["gap", "pattern", "follow-up"]),
+  text: z.string(),
+  confidence: z.enum(["high", "medium", "low"]),
+});
+
 const agentActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("recorded"),
     event: savedFarmEventSchema,
     possibleDuplicate: z.boolean().optional(),
+    suggestions: z.array(suggestionSchema).optional(),
   }),
   z.object({
     type: z.literal("corrected"),
@@ -78,6 +85,11 @@ const agentActionSchema = z.discriminatedUnion("type", [
     type: z.literal("answer"),
     text: z.string(),
     citedRecords: z.array(citedRecordSchema),
+  }),
+  z.object({
+    type: z.literal("briefing"),
+    text: z.string(),
+    suggestions: z.array(suggestionSchema),
   }),
 ]);
 

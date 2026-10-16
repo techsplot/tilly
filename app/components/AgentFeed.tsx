@@ -163,6 +163,30 @@ function ActionCard({
     );
   }
 
+  if (action.type === "briefing") {
+    return (
+      <article className="feed-card feed-briefing">
+        <span className="feed-icon">📋</span>
+        <div>
+          <p>{action.text}</p>
+          {action.suggestions.length > 0 && (
+            <div className="suggestions">
+              {action.suggestions.map((suggestion, index) => (
+                <p
+                  key={index}
+                  className={`suggestion suggestion-${suggestion.confidence}`}
+                >
+                  💡 {suggestion.text}
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+      </article>
+    );
+  }
+
+  // At this point, action must be undoable (recorded, corrected, or deleted)
   const isDuplicate =
     action.type === "recorded" && action.possibleDuplicate === true;
   const summary = isDuplicate
@@ -173,12 +197,16 @@ function ActionCard({
         ? correctedSummary(action)
         : deletedSummary(action.event);
 
+  const suggestions =
+    action.type === "recorded" ? action.suggestions : undefined;
+
   return (
     <article className={`feed-card feed-${action.type}`}>
       <span className="feed-icon">✓</span>
       <div>
         <p>{summary}</p>
-        {action.event.resolvedFromMemory &&
+        {"event" in action &&
+          action.event.resolvedFromMemory &&
           action.event.resolvedFromMemory.length > 0 && (
             <div className="memory-note">
               {action.event.resolvedFromMemory.map((resolution) => (
@@ -193,13 +221,25 @@ function ActionCard({
               ))}
             </div>
           )}
+        {suggestions && suggestions.length > 0 && (
+          <div className="suggestions">
+            {suggestions.map((suggestion, index) => (
+              <p
+                key={index}
+                className={`suggestion suggestion-${suggestion.confidence}`}
+              >
+                💡 {suggestion.text}
+              </p>
+            ))}
+          </div>
+        )}
         {item.undone ? (
           <span className="undo-link undone">Undone</span>
         ) : (
           <button
             type="button"
             className="undo-link"
-            onClick={() => onUndo(item.id, action)}
+            onClick={() => onUndo(item.id, action as UndoableAgentAction)}
             disabled={item.undoing}
           >
             {item.undoing ? "Undoing…" : "Undo"}

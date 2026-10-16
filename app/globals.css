@@ -313,6 +313,49 @@ button:disabled {
   margin: 4px 0;
 }
 
+/* Suggestions */
+
+.suggestions {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.suggestion {
+  background: rgba(47, 107, 79, 0.06);
+  border-left: 3px solid var(--green);
+  border-radius: 6px;
+  color: var(--ink);
+  font-size: 13px;
+  padding: 8px 10px;
+  line-height: 1.4;
+}
+
+.suggestion-high {
+  background: rgba(47, 107, 79, 0.1);
+  border-left-color: var(--green-dark);
+}
+
+.suggestion-medium {
+  background: rgba(47, 107, 79, 0.06);
+  border-left-color: var(--green);
+}
+
+.suggestion-low {
+  background: rgba(107, 123, 113, 0.06);
+  border-left-color: var(--muted);
+  color: var(--muted);
+}
+
+.feed-briefing {
+  align-items: flex-start;
+  background: #f0f7ff;
+  border-color: #c8dffa;
+  display: flex;
+  gap: 10px;
+}
+
 /* Message bar */
 
 .message-bar {

@@ -72,8 +72,19 @@ export type Change = {
   after: unknown;
 };
 
+export type Suggestion = {
+  type: "gap" | "pattern" | "follow-up";
+  text: string;
+  confidence: "high" | "medium" | "low";
+};
+
 export type AgentAction =
-  | { type: "recorded"; event: SavedFarmEvent; possibleDuplicate?: boolean }
+  | {
+      type: "recorded";
+      event: SavedFarmEvent;
+      possibleDuplicate?: boolean;
+      suggestions?: Suggestion[];
+    }
   | {
       type: "corrected";
       event: SavedFarmEvent;
@@ -83,7 +94,8 @@ export type AgentAction =
   | { type: "deleted"; event: SavedFarmEvent }
   | { type: "question"; text: string; pending: Pending }
   | { type: "reply"; text: string }
-  | { type: "answer"; text: string; citedRecords: CitedRecord[] };
+  | { type: "answer"; text: string; citedRecords: CitedRecord[] }
+  | { type: "briefing"; text: string; suggestions: Suggestion[] };
 
 export type HandleFarmerMessageInput = {
   message: string;
@@ -249,9 +261,14 @@ async function recordedAction(
       currentDate,
     },
   );
+
+  // Generate suggestions after recording
+  const { generateSuggestions } = await import("./farm-insights");
+  const suggestions = await generateSuggestions(db, farmId, currentDate);
+
   return possibleDuplicate
-    ? { type: "recorded", event: saved, possibleDuplicate: true }
-    : { type: "recorded", event: saved };
+    ? { type: "recorded", event: saved, possibleDuplicate: true, suggestions }
+    : { type: "recorded", event: saved, suggestions };
 }
 
 // Finding 1 + 14: every complete event in the note is saved; at most one
