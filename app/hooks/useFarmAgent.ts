@@ -259,6 +259,9 @@ export function useFarmAgent() {
   const [history, setHistory] = useState<SavedFarmEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(true);
   const [activeFarmName, setActiveFarmName] = useState<string>("My Farm");
+  const [activeFarmId, setActiveFarmId] = useState<string | undefined>(
+    undefined,
+  );
   const nudgeOfferedRef = useRef(false);
 
   const refreshHistory = useCallback(async () => {
@@ -271,12 +274,14 @@ export function useFarmAgent() {
         .object({
           events: z.array(savedFarmEventSchema),
           farmName: z.string().optional(),
+          farmId: z.string().optional(),
         })
         .safeParse(body);
       if (!parsed.success)
         throw new Error("Farm history returned invalid data.");
       setHistory(parsed.data.events);
       if (parsed.data.farmName) setActiveFarmName(parsed.data.farmName);
+      if (parsed.data.farmId) setActiveFarmId(parsed.data.farmId);
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -532,6 +537,7 @@ export function useFarmAgent() {
     history,
     historyLoading,
     activeFarmName,
+    activeFarmId,
     sendMessage,
     retry,
     undo,

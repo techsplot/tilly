@@ -41,14 +41,25 @@ export const farmTimeOfDayEnum = pgEnum("farm_time_of_day", [
   "night",
 ] as const);
 
-export const farms = pgTable("farms", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  name: text("name").notNull(),
-  sessionId: text("session_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .defaultNow()
-    .notNull(),
-});
+export const farms = pgTable(
+  "farms",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    name: text("name").notNull(),
+    sessionId: text("session_id").notNull(),
+    wakeWord: text("wake_word").notNull().default("hey farmmind"),
+    wakeWordEnabled: boolean("wake_word_enabled").notNull().default(false),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    wakeWordEnabledIdx: index("farms_wake_word_enabled_idx").on(
+      table.id,
+      table.wakeWordEnabled,
+    ),
+  }),
+);
 
 export const fields = pgTable(
   "fields",
