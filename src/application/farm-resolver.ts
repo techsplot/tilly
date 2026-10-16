@@ -17,15 +17,12 @@ export async function resolveFarmReference(
   db: Database,
   sessionId: string,
   farmReference: string | null | undefined,
-  defaultFarmId: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _defaultFarmId: string,
 ): Promise<FarmResolutionResult | null> {
   if (!farmReference) return null;
 
-  const matches = await findFarmByNameAndSession(
-    db,
-    farmReference,
-    sessionId,
-  );
+  const matches = await findFarmByNameAndSession(db, farmReference, sessionId);
 
   if (matches.length === 0) {
     return { status: "not_found", reference: farmReference };

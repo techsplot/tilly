@@ -1,6 +1,5 @@
 import {
   createFarm,
-  findFarm,
   findFarmByIdAndSession,
   listFarmsBySession,
   type Database,

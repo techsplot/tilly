@@ -15,6 +15,7 @@ export default function HomePage() {
     error,
     history,
     historyLoading,
+    activeFarmName,
     sendMessage,
     retry,
     undo,
@@ -54,6 +55,7 @@ export default function HomePage() {
         <div className="brand-mark">F</div>
         <p className="eyebrow">FIELDLEDGER · FARMMIND</p>
         <h1>Your farm remembers.</h1>
+        <p className="farm-context">{activeFarmName}</p>
       </section>
 
       <nav className="tab-row" aria-label="View">

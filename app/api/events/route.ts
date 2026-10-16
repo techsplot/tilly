@@ -1,6 +1,6 @@
 import { z } from "zod";
+import { eq } from "drizzle-orm";
 import {
-  getExistingFarmId,
   getFarmContext,
   farmCookieHeader,
   sessionCookieHeader,
@@ -11,6 +11,7 @@ import {
 } from "@/src/application/persist-farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
 import { farmEventSchema } from "@/src/domain/farm-event";
+import { farms } from "@/src/infrastructure/db/schema";
 import { eventErrorResponse } from "./errors";
 
 const recordRequestSchema = z.object({
@@ -40,7 +41,8 @@ export async function POST(request: Request): Promise<Response> {
     if (context.isNewSession)
       cookies.push(sessionCookieHeader(context.sessionId));
     if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
-    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
+    if (cookies.length > 0)
+      response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return eventErrorResponse(error);
@@ -50,10 +52,18 @@ export async function POST(request: Request): Promise<Response> {
 export async function GET(request: Request): Promise<Response> {
   try {
     const db = getDb();
-    const farmId = await getExistingFarmId(db, request);
-    if (!farmId) return Response.json({ events: [] });
+    const context = await getFarmContext(db, request);
+    const [events, farmRows] = await Promise.all([
+      listTimeline(db, context.farmId),
+      db
+        .select({ name: farms.name })
+        .from(farms)
+        .where(eq(farms.id, context.farmId))
+        .limit(1),
+    ]);
     const response = Response.json({
-      events: await listTimeline(db, farmId),
+      events,
+      farmName: farmRows[0]?.name ?? "My Farm",
     });
     return response;
   } catch (error) {

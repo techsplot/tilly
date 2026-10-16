@@ -27,7 +27,8 @@ export async function POST(
     if (context.isNewSession)
       cookies.push(sessionCookieHeader(context.sessionId));
     if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
-    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
+    if (cookies.length > 0)
+      response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return eventErrorResponse(error);

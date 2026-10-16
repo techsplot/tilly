@@ -3,7 +3,6 @@ import {
   getFarmContext,
   farmCookieHeader,
   sessionCookieHeader,
-  getSessionId,
 } from "@/src/application/farm-context";
 import { handleFarmerMessage } from "@/src/application/farm-agent";
 import {
@@ -12,10 +11,7 @@ import {
 } from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
 import { agentErrorResponse } from "./errors";
-import {
-  resolveFarmReference,
-  type FarmResolutionResult,
-} from "@/src/application/farm-resolver";
+import { resolveFarmReference } from "@/src/application/farm-resolver";
 import { extractFarmEvent } from "@/src/application/extract-farm-event";
 import { loadFarmMemory } from "@/src/application/farm-memory";
 import { listFarmsBySession } from "@/src/infrastructure/db/farm-event-repository";
@@ -116,21 +112,25 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const context = await getFarmContext(db, request);
-    
+
     // Farm resolution: if not handling a pending clarification/gap/correction,
     // check if the message mentions a specific farm
     let targetFarmId = context.farmId;
     if (!parsed.data.pending) {
       // Quick extraction to check for farm reference
       try {
-        const memory = await loadFarmMemory(db, context.farmId, parsed.data.currentDate);
+        const memory = await loadFarmMemory(
+          db,
+          context.farmId,
+          parsed.data.currentDate,
+        );
         const extraction = await extractFarmEvent(
           parsed.data.message,
           parsed.data.currentDate,
           undefined,
           memory,
         );
-        
+
         if (extraction.farmReference) {
           const resolution = await resolveFarmReference(
             db,
@@ -138,7 +138,7 @@ export async function POST(request: Request): Promise<Response> {
             extraction.farmReference,
             context.farmId,
           );
-          
+
           if (resolution?.status === "resolved") {
             targetFarmId = resolution.farmId;
           } else if (resolution?.status === "ambiguous") {
@@ -170,14 +170,15 @@ export async function POST(request: Request): Promise<Response> {
         console.error("Farm reference extraction failed", error);
       }
     }
-    
+
     const actions = await handleFarmerMessage(db, targetFarmId, parsed.data);
     const response = Response.json({ actions });
     const cookies: string[] = [];
     if (context.isNewSession)
       cookies.push(sessionCookieHeader(context.sessionId));
     if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
-    if (cookies.length > 0) response.headers.set("Set-Cookie", cookies.join(", "));
+    if (cookies.length > 0)
+      response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
     return agentErrorResponse(error);

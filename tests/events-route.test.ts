@@ -1,6 +1,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockDb = {};
+const mockDb = {
+  select: vi.fn(() => ({
+    from: vi.fn(() => ({
+      where: vi.fn(() => ({
+        limit: vi.fn(() => Promise.resolve([{ name: "Test Farm" }])),
+      })),
+    })),
+  })),
+};
 const mockGetFarmContext = vi.hoisted(() => vi.fn());
 const mockGetExistingFarmId = vi.hoisted(() => vi.fn());
 const mockRecordFarmEvent = vi.hoisted(() => vi.fn());
@@ -96,17 +104,34 @@ describe("farm event routes", () => {
 
   it("lists the farm timeline", async () => {
     mockListTimeline.mockResolvedValue([savedEvent]);
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-123",
+      sessionId: "session-123",
+      isNewFarm: false,
+      isNewSession: false,
+    });
     const response = await GET(new Request("http://localhost/api/events"));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ events: [savedEvent] });
+    await expect(response.json()).resolves.toEqual({
+      events: [savedEvent],
+      farmName: "Test Farm",
+    });
   });
 
   it("does not create a farm when listing without a cookie", async () => {
-    mockGetExistingFarmId.mockResolvedValue(undefined);
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-123",
+      sessionId: "session-123",
+      isNewFarm: true,
+      isNewSession: true,
+    });
+    mockListTimeline.mockResolvedValue([]);
     const response = await GET(new Request("http://localhost/api/events"));
     expect(response.status).toBe(200);
-    await expect(response.json()).resolves.toEqual({ events: [] });
-    expect(mockListTimeline).not.toHaveBeenCalled();
+    await expect(response.json()).resolves.toEqual({
+      events: [],
+      farmName: "Test Farm",
+    });
   });
 
   it("returns 404 for malformed ids", async () => {

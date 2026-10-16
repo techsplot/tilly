@@ -1,7 +1,6 @@
 import { z } from "zod";
 import {
   getFarmContext,
-  farmCookieHeader,
   sessionCookieHeader,
   getSessionId,
 } from "@/src/application/farm-context";
@@ -20,10 +19,7 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ farms });
   } catch (error) {
     console.error("List farms failed", error);
-    return Response.json(
-      { error: "Failed to list farms." },
-      { status: 500 },
-    );
+    return Response.json({ error: "Failed to list farms." }, { status: 500 });
   }
 }
 
@@ -67,15 +63,15 @@ export async function POST(request: Request): Promise<Response> {
 
     // Set session cookie if new session
     if (context.isNewSession) {
-      response.headers.set("Set-Cookie", sessionCookieHeader(context.sessionId));
+      response.headers.set(
+        "Set-Cookie",
+        sessionCookieHeader(context.sessionId),
+      );
     }
 
     return response;
   } catch (error) {
     console.error("Create farm failed", error);
-    return Response.json(
-      { error: "Failed to create farm." },
-      { status: 500 },
-    );
+    return Response.json({ error: "Failed to create farm." }, { status: 500 });
   }
 }
