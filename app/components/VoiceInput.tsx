@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { matchWakeWord } from "@/src/domain/wake-word";
 
 interface VoiceInputProps {
   onTranscript: (text: string) => void;
@@ -216,49 +217,14 @@ export default function VoiceInput({
    * Handle wake word detection
    */
   async function handleWakeWordDetection(transcript: string) {
-    setState("processing");
-
-    try {
-      const response = await fetch("/api/voice/detect-wake-word", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript,
-          customWakeWord: wakeWord,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error("Wake word detection failed");
-      }
-
-      const data = await response.json();
-
-      if (data.is_wake_word && data.command) {
-        // Wake word detected!
-        setState("activated");
-        playActivationSound();
-        handleTranscriptComplete(data.command);
-      } else {
-        // Not a wake word, continue listening
-        setState("listening");
-        setInterimTranscript("");
-      }
-    } catch (error) {
-      console.error("Wake word detection error:", error);
-      // Fall back to simple string matching
-      const normalized = transcript.toLowerCase();
-      if (normalized.startsWith(wakeWord.toLowerCase())) {
-        const command = transcript.substring(wakeWord.length).trim();
-        if (command) {
-          setState("activated");
-          playActivationSound();
-          handleTranscriptComplete(command);
-        }
-      } else {
-        setState("listening");
-        setInterimTranscript("");
-      }
+    const match = matchWakeWord(transcript, wakeWord);
+    if (match.matched && match.command) {
+      setState("activated");
+      playActivationSound();
+      handleTranscriptComplete(match.command);
+    } else {
+      setState("listening");
+      setInterimTranscript("");
     }
   }
 
