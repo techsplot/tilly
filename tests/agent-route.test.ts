@@ -161,6 +161,35 @@ describe("agent route", () => {
     );
   });
 
+  it("passes the session to the agent and keeps cookies on a farm reply", async () => {
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: true,
+      isNewSession: true,
+    });
+    mockHandleFarmerMessage.mockResolvedValue([
+      { type: "reply", text: 'I couldn\'t find a farm named "Hill Farm".' },
+    ]);
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "I weeded at Hill Farm",
+          currentDate: "2026-10-12",
+          recentEventIds: [],
+        }),
+      ),
+    );
+    expect(mockHandleFarmerMessage).toHaveBeenCalledWith(
+      mockDb,
+      "farm-id",
+      expect.objectContaining({ sessionId: "session-id" }),
+    );
+    expect(response.headers.get("set-cookie")).toBe(
+      "session=session-id, farm=farm-id",
+    );
+  });
+
   it("returns 504 for SDK timeouts", async () => {
     mockHandleFarmerMessage.mockImplementation(async () => {
       await Promise.resolve();

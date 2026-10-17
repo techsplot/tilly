@@ -10,6 +10,7 @@ import {
 import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
+import { resolveFarmReference } from "./farm-resolver";
 import {
   changedFields,
   correctRecordedEvent,
@@ -26,6 +27,7 @@ import {
 import {
   findFirstOwnedActiveEvent,
   findNudgeCandidate,
+  listFarmsBySession,
   markNudged,
   stopNudges,
   toFarmEvent,
@@ -102,6 +104,9 @@ export type HandleFarmerMessageInput = {
   currentDate: string;
   pending?: Pending | undefined;
   recentEventIds: string[];
+  // Lets a new message name another farm owned by the same session.
+  // Without it, every message goes to the active farm.
+  sessionId?: string | undefined;
 };
 
 const NOTHING_TO_TARGET_REPLY =
@@ -730,20 +735,69 @@ async function handleGapAnswer(
   return [await correctTarget(db, farmId, target, changes, currentDate)];
 }
 
+async function farmListReply(
+  db: Database,
+  sessionId: string,
+  lead: string,
+): Promise<AgentAction[]> {
+  const farms = await listFarmsBySession(db, sessionId);
+  const farmNames = farms.map((farm) => farm.name).join(", ");
+  return [{ type: "reply", text: `${lead} Your farms: ${farmNames}` }];
+}
+
 async function handleNewMessage(
   db: Database,
-  farmId: string,
+  activeFarmId: string,
   message: string,
   currentDate: string,
   recentEventIds: string[],
+  sessionId?: string,
 ): Promise<AgentAction[]> {
+  let farmId = activeFarmId;
   const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
-  const interaction = await extractFarmEvent(
+  let interaction = await extractFarmEvent(
     message,
     currentDate,
     undefined,
     memory,
   );
+
+  // One extraction answers both "what happened" and "which farm". Only a
+  // message naming a different farm is extracted again, because the first
+  // pass resolved fields and "same as before" against the wrong farm.
+  if (sessionId && interaction.farmReference) {
+    const resolution = await resolveFarmReference(
+      db,
+      sessionId,
+      interaction.farmReference,
+      farmId,
+    );
+    if (resolution?.status === "ambiguous") {
+      return farmListReply(
+        db,
+        sessionId,
+        "I found multiple farms with that name. Which one did you mean?",
+      );
+    }
+    if (resolution?.status === "not_found") {
+      return farmListReply(
+        db,
+        sessionId,
+        `I couldn't find a farm named "${resolution.reference}".`,
+      );
+    }
+    if (resolution?.status === "resolved" && resolution.farmId !== farmId) {
+      farmId = resolution.farmId;
+      const farmMemory = await loadFarmMemoryQuietly(db, farmId, currentDate);
+      interaction = await extractFarmEvent(
+        message,
+        currentDate,
+        undefined,
+        farmMemory,
+      );
+    }
+  }
+
   return routeInteraction(
     db,
     farmId,
@@ -797,6 +851,7 @@ export async function handleFarmerMessage(
     input.message,
     input.currentDate,
     recentEventIds,
+    input.sessionId,
   );
 }
 
