@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
-import { db } from "@/src/infrastructure/db/client";
+import { getDb } from "@/src/infrastructure/db/client";
 import { farms } from "@/src/infrastructure/db/schema";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { cookies } from "next/headers";
 
 const wakeWordSettingsSchema = z.object({
@@ -30,6 +30,7 @@ export async function GET(
       return NextResponse.json({ error: "No session found" }, { status: 401 });
     }
 
+    const db = getDb();
     const [farm] = await db
       .select({
         id: farms.id,
@@ -48,8 +49,7 @@ export async function GET(
     const [ownedFarm] = await db
       .select({ id: farms.id })
       .from(farms)
-      .where(eq(farms.id, id))
-      .where(eq(farms.sessionId, sessionId))
+      .where(and(eq(farms.id, id), eq(farms.sessionId, sessionId)))
       .limit(1);
 
     if (!ownedFarm) {
@@ -85,12 +85,12 @@ export async function PATCH(
       return NextResponse.json({ error: "No session found" }, { status: 401 });
     }
 
+    const db = getDb();
     // Verify ownership
     const [ownedFarm] = await db
       .select({ id: farms.id })
       .from(farms)
-      .where(eq(farms.id, id))
-      .where(eq(farms.sessionId, sessionId))
+      .where(and(eq(farms.id, id), eq(farms.sessionId, sessionId)))
       .limit(1);
 
     if (!ownedFarm) {
@@ -116,7 +116,7 @@ export async function PATCH(
   } catch (error) {
     if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid settings", details: error.errors },
+        { error: "Invalid settings", details: error.issues },
         { status: 400 },
       );
     }
