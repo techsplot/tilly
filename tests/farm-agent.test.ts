@@ -1021,11 +1021,9 @@ describe("gap reminders (finding 12)", () => {
       eventDate: "2026-10-12",
     });
 
-    // First call: the reply read against the nudge question; second call:
-    // the same reply handled as a new note.
-    mockCreate
-      .mockResolvedValueOnce(modelResponse([weeding]))
-      .mockResolvedValueOnce(modelResponse([weeding]));
+    // The reply names another activity, so code skips reading it against
+    // the nudge question: one call, for the reply as a new note.
+    mockCreate.mockResolvedValueOnce(modelResponse([weeding]));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "I weeded the river field today",
@@ -1034,7 +1032,7 @@ describe("gap reminders (finding 12)", () => {
       recentEventIds: [],
     });
 
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(actions).toHaveLength(1);
     expect(actions[0]?.type).toBe("recorded");
     if (actions[0]?.type !== "recorded") throw new Error("expected recorded");

@@ -137,6 +137,15 @@ describe("farm resolution makes one extraction per new message", () => {
     expect(await listTimeline(db, riverId)).toHaveLength(0);
   });
 
+  it("treats a field the model put in farmReference as a field", async () => {
+    // Live testing: "I weeded the north field" → farm "north field".
+    mockCreate.mockResolvedValueOnce(weeding("Back Field"));
+    const actions = await send("I weeded the back field today");
+    expect(actions[0]?.type).toBe("recorded");
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(await listTimeline(db, homeId)).toHaveLength(1);
+  });
+
   it("ignores farm names from other sessions", async () => {
     await createFarm(db, "someone-else", "Hill Farm");
     mockCreate.mockResolvedValueOnce(weeding("Hill Farm"));

@@ -12,6 +12,7 @@ import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
 import { resolveFarmReference } from "./farm-resolver";
 import { classifySmallTalk, type SmallTalk } from "../domain/small-talk";
+import { namesAnotherActivity } from "../domain/activity-words";
 import {
   changedFields,
   correctRecordedEvent,
@@ -754,6 +755,12 @@ async function handleGapAnswer(
   }
   const targetEvent = toFarmEvent(target);
   const question = buildNudgeQuestion(targetEvent);
+  // A reply naming a different activity is a new note, not the answer:
+  // live testing saw "I planted maize..." applied as the crop of a weeding
+  // record, so code decides this before the model is asked.
+  if (namesAnotherActivity(message, targetEvent.activity, question)) {
+    return handleNewMessage(db, farmId, message, currentDate, recentEventIds);
+  }
   const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
   const interaction = await extractFarmEvent(
     question,
@@ -783,6 +790,21 @@ async function handleGapAnswer(
     return [{ type: "reply", text: GAP_LEFT_AS_IS_REPLY }];
   }
   return [await correctTarget(db, farmId, target, changes, currentDate)];
+}
+
+// The model sometimes puts a field into farmReference ("I weeded the north
+// field" → farm "north field"). A name that matches a field in this note or
+// in the farm's memory is a field, not a farm.
+function isFieldName(
+  reference: string,
+  events: Array<{ field: string | null }>,
+  memory: FarmMemory,
+): boolean {
+  const name = reference.trim().toLowerCase();
+  return (
+    events.some((event) => event.field?.trim().toLowerCase() === name) ||
+    memory.fields.some((field) => field.name.trim().toLowerCase() === name)
+  );
 }
 
 async function farmListReply(
@@ -815,7 +837,11 @@ async function handleNewMessage(
   // One extraction answers both "what happened" and "which farm". Only a
   // message naming a different farm is extracted again, because the first
   // pass resolved fields and "same as before" against the wrong farm.
-  if (sessionId && interaction.farmReference) {
+  if (
+    sessionId &&
+    interaction.farmReference &&
+    !isFieldName(interaction.farmReference, interaction.events, memory)
+  ) {
     const resolution = await resolveFarmReference(
       db,
       sessionId,
