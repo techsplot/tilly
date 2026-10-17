@@ -15,18 +15,18 @@ describe("matchWakeWord", () => {
   });
 
   it("treats spacing inside the wake word as the same phrase", () => {
-    expect(matchWakeWord("hey farm mind I planted maize", "hey farmmind")).toEqual(
-      { matched: true, command: "I planted maize" },
-    );
-    expect(matchWakeWord("ok farmmind I planted maize", "ok farm mind")).toEqual(
-      { matched: true, command: "I planted maize" },
-    );
+    expect(
+      matchWakeWord("hey farm mind I planted maize", "hey farmmind"),
+    ).toEqual({ matched: true, command: "I planted maize" });
+    expect(
+      matchWakeWord("ok farmmind I planted maize", "ok farm mind"),
+    ).toEqual({ matched: true, command: "I planted maize" });
   });
 
   it("accepts okay for ok", () => {
-    expect(matchWakeWord("okay farm I watered the seedlings", "ok farm")).toEqual(
-      { matched: true, command: "I watered the seedlings" },
-    );
+    expect(
+      matchWakeWord("okay farm I watered the seedlings", "ok farm"),
+    ).toEqual({ matched: true, command: "I watered the seedlings" });
   });
 
   it("skips leading filler words", () => {

@@ -1,242 +1,196 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFarmAgent } from "@/app/hooks/useFarmAgent";
 import AgentFeed from "@/app/components/AgentFeed";
-import MessageBar from "@/app/components/MessageBar";
+import ChatHeader, { type MenuChoice } from "@/app/components/ChatHeader";
+import Drawer from "@/app/components/Drawer";
 import FarmHistory from "@/app/components/FarmHistory";
-import WakeWordSettings from "@/app/components/WakeWordSettings";
+import FarmsPanel from "@/app/components/FarmsPanel";
+import MessageBar from "@/app/components/MessageBar";
+import WakeWordSettings, {
+  type VoiceSettings,
+} from "@/app/components/WakeWordSettings";
+import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
+
+const DRAWER_TITLES: Record<MenuChoice, string> = {
+  records: "My records",
+  farms: "Farms",
+  voice: "Voice settings",
+};
 
 export default function HomePage() {
-  const {
-    feed,
-    pending,
-    lastQuestionText,
-    isLoading,
-    error,
-    history,
-    historyLoading,
-    activeFarmName,
-    activeFarmId,
-    sendMessage,
-    retry,
-    undo,
-  } = useFarmAgent();
-  const [activeTab, setActiveTab] = useState<"feed" | "history">("feed");
+  const agent = useFarmAgent();
+  const { activeFarmId, isLoading, setHistoryOpen } = agent;
+  const [draft, setDraft] = useState("");
+  const [drawer, setDrawer] = useState<MenuChoice | null>(null);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings | null>(
+    null,
+  );
+  const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(
+    null,
+  );
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const elapsedIntervalRef = useRef<number | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
-  // Wake word settings state
-  const [showSettings, setShowSettings] = useState(false);
-  const [wakeWord, setWakeWord] = useState("hey farmmind");
-  const [wakeWordEnabled, setWakeWordEnabled] = useState(false);
-  const [settingsLoading, setSettingsLoading] = useState(true);
-
-  // Load wake word settings on mount
   useEffect(() => {
-    async function loadSettings() {
-      if (!activeFarmId) {
-        setSettingsLoading(false);
-        return;
-      }
-
+    if (!activeFarmId) return;
+    let cancelled = false;
+    setVoiceSettings(null);
+    setVoiceSettingsError(null);
+    void (async () => {
       try {
         const response = await fetch(`/api/farms/${activeFarmId}/settings`);
-        if (response.ok) {
-          const data = await response.json();
-          setWakeWord(data.wakeWord ?? "hey farmmind");
-          setWakeWordEnabled(data.wakeWordEnabled ?? false);
-        }
-      } catch (error) {
-        console.error("Failed to load wake word settings:", error);
-      } finally {
-        setSettingsLoading(false);
+        if (!response.ok) throw new Error();
+        const data = (await response.json()) as VoiceSettings;
+        if (!cancelled) setVoiceSettings(data);
+      } catch {
+        if (!cancelled)
+          setVoiceSettingsError("Voice settings could not be loaded.");
       }
-    }
-
-    void loadSettings();
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, [activeFarmId]);
 
   useEffect(() => {
-    if (isLoading) {
-      setElapsedSeconds(0);
-      elapsedIntervalRef.current = window.setInterval(() => {
-        setElapsedSeconds((seconds) => seconds + 1);
-      }, 1000);
-    } else if (elapsedIntervalRef.current) {
-      clearInterval(elapsedIntervalRef.current);
-      elapsedIntervalRef.current = null;
-    }
-    return () => {
-      if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current);
-    };
+    if (!isLoading) return;
+    setElapsedSeconds(0);
+    const interval = window.setInterval(
+      () => setElapsedSeconds((seconds) => seconds + 1),
+      1000,
+    );
+    return () => window.clearInterval(interval);
   }, [isLoading]);
 
   useEffect(() => {
-    feedEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [feed, isLoading]);
+    feedEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [agent.feed, isLoading]);
 
-  async function handleSaveSettings(settings: {
-    wakeWord: string;
-    wakeWordEnabled: boolean;
-  }) {
-    if (!activeFarmId) {
-      throw new Error("No active farm");
-    }
+  const openDrawer = useCallback(
+    (choice: MenuChoice) => {
+      setDrawer(choice);
+      setHistoryOpen(choice === "records");
+    },
+    [setHistoryOpen],
+  );
 
+  const closeDrawer = useCallback(() => {
+    setDrawer(null);
+    setHistoryOpen(false);
+  }, [setHistoryOpen]);
+
+  async function saveVoiceSettings(settings: VoiceSettings) {
+    if (!activeFarmId) throw new Error("Your farm is still loading.");
     const response = await fetch(`/api/farms/${activeFarmId}/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(settings),
     });
-
+    const body = (await response.json().catch(() => ({}))) as
+      VoiceSettings | { error?: string };
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error ?? "Failed to save settings");
+      throw new Error(
+        ("error" in body && body.error) || "Voice settings could not be saved.",
+      );
     }
-
-    const data = await response.json();
-    setWakeWord(data.wakeWord);
-    setWakeWordEnabled(data.wakeWordEnabled);
-    setShowSettings(false);
+    setVoiceSettings(body as VoiceSettings);
+    closeDrawer();
   }
 
+  const wakeWord = voiceSettings?.wakeWord ?? DEFAULT_WAKE_WORD;
   const placeholder =
-    pending && lastQuestionText
-      ? `Answer: ${lastQuestionText}`
+    agent.pending && agent.lastQuestionText
+      ? "Type your answer…"
       : "What happened on the farm today?";
 
   return (
-    <main className="shell">
-      <section className="hero">
-        <div className="hero-content">
-          <div className="brand-mark">F</div>
-          <div className="hero-text">
-            <p className="eyebrow">FIELDLEDGER · FARMMIND</p>
-            <h1>Your farm remembers.</h1>
-            <p className="farm-context">{activeFarmName}</p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowSettings(true)}
-            className="settings-button"
-            aria-label="Wake word settings"
-            title="Voice settings"
-          >
-            ⚙️
-          </button>
-        </div>
-      </section>
-
-      <nav className="tab-row" aria-label="View">
-        <button
-          type="button"
-          className={activeTab === "feed" ? "tab active" : "tab"}
-          onClick={() => setActiveTab("feed")}
-        >
-          Feed
-        </button>
-        <button
-          type="button"
-          className={activeTab === "history" ? "tab active" : "tab"}
-          onClick={() => setActiveTab("history")}
-        >
-          History
-        </button>
-      </nav>
-
-      <div className="panels">
-        <section
-          className={`feed-panel ${activeTab === "feed" ? "" : "panel-hidden-mobile"}`}
-        >
-          <AgentFeed
-            items={feed}
-            isLoading={isLoading}
-            elapsedSeconds={elapsedSeconds}
-            error={error}
-            onUndo={undo}
-            onRetry={retry}
-          />
-          <div ref={feedEndRef} />
-        </section>
-
-        <section
-          className={`history-panel ${activeTab === "history" ? "" : "panel-hidden-mobile"}`}
-        >
-          <FarmHistory history={history} loading={historyLoading} />
-        </section>
-      </div>
-
-      <MessageBar
-        disabled={isLoading}
-        placeholder={placeholder}
-        onSend={(message) => void sendMessage(message)}
-        wakeWord={wakeWord}
-        wakeWordEnabled={wakeWordEnabled}
+    <div className="app">
+      <ChatHeader
+        farmName={agent.activeFarmName}
+        menuButtonRef={menuButtonRef}
+        onChoose={openDrawer}
       />
 
-      {showSettings && !settingsLoading && activeFarmId && (
-        <>
-          <div
-            className="settings-overlay"
-            onClick={() => setShowSettings(false)}
+      <main className="chat" aria-label="Conversation with FarmMind">
+        <div className="chat-column">
+          {agent.farmError && (
+            <p className="banner-error" role="alert">
+              {agent.farmError}
+            </p>
+          )}
+          <AgentFeed
+            items={agent.feed}
+            isLoading={isLoading}
+            elapsedSeconds={elapsedSeconds}
+            error={agent.error}
+            onUndo={agent.undo}
+            onRetry={agent.retry}
+            onExample={setDraft}
           />
-          <WakeWordSettings
-            farmId={activeFarmId}
-            currentWakeWord={wakeWord}
-            currentEnabled={wakeWordEnabled}
-            onSave={handleSaveSettings}
-            onClose={() => setShowSettings(false)}
-          />
-        </>
+          <div ref={feedEndRef} />
+        </div>
+      </main>
+
+      <MessageBar
+        value={draft}
+        onChange={setDraft}
+        onSend={(message) => void agent.sendMessage(message)}
+        busy={isLoading}
+        placeholder={placeholder}
+        voiceMode={voiceSettings?.wakeWordEnabled ? "wakeWord" : "direct"}
+        wakeWord={wakeWord}
+        onOpenVoiceSettings={() => openDrawer("voice")}
+      />
+
+      {drawer && (
+        <Drawer
+          title={DRAWER_TITLES[drawer]}
+          onClose={closeDrawer}
+          returnFocusRef={menuButtonRef}
+        >
+          {drawer === "records" && (
+            <FarmHistory
+              history={agent.history}
+              loading={agent.historyLoading}
+              error={agent.historyError}
+            />
+          )}
+          {drawer === "farms" && (
+            <FarmsPanel
+              farms={agent.farms}
+              activeFarmId={activeFarmId}
+              onSwitch={async (farmId) => {
+                await agent.switchFarm(farmId);
+                closeDrawer();
+              }}
+              onAdd={async (name) => {
+                await agent.addFarm(name);
+                closeDrawer();
+              }}
+            />
+          )}
+          {drawer === "voice" &&
+            (voiceSettings ? (
+              <WakeWordSettings
+                current={voiceSettings}
+                onSave={saveVoiceSettings}
+              />
+            ) : (
+              <p
+                className={voiceSettingsError ? "drawer-error" : "drawer-note"}
+                role={voiceSettingsError ? "alert" : undefined}
+              >
+                {voiceSettingsError ??
+                  (agent.farmError
+                    ? agent.farmError
+                    : "Loading voice settings…")}
+              </p>
+            ))}
+        </Drawer>
       )}
-
-      <footer>
-        <span>Private by design</span>
-        <span>•</span>
-        <span>
-          Records are saved for this browser. Clearing browser data starts a new
-          farm.
-        </span>
-      </footer>
-
-      <style jsx>{`
-        .hero-content {
-          display: flex;
-          align-items: flex-start;
-          gap: 16px;
-          position: relative;
-        }
-
-        .hero-text {
-          flex: 1;
-        }
-
-        .settings-button {
-          background: none;
-          border: none;
-          font-size: 24px;
-          cursor: pointer;
-          padding: 8px;
-          opacity: 0.7;
-          transition: opacity 0.2s;
-        }
-
-        .settings-button:hover {
-          opacity: 1;
-        }
-
-        .settings-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          z-index: 999;
-        }
-      `}</style>
-    </main>
+    </div>
   );
 }

@@ -1,83 +1,196 @@
 "use client";
 
-import { type FormEvent, useState } from "react";
-import VoiceInput from "./VoiceInput";
+import { type FormEvent, useEffect, useRef } from "react";
+import { useVoiceInput } from "@/app/hooks/useVoiceInput";
+import { displayWakeWord } from "@/app/lib/format";
+import type { VoiceMode } from "@/app/lib/voice-controller";
+
+const LONG_PRESS_MS = 600;
+
+function MicIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M12 15a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v7a3 3 0 0 0 3 3Z"
+        fill="currentColor"
+      />
+      <path
+        d="M19 11a7 7 0 0 1-14 0M12 18v3"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function SendIcon() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path
+        d="M3.4 20.4 21 12 3.4 3.6 3.4 10l12.6 2-12.6 2z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}
 
 export default function MessageBar({
-  disabled,
-  placeholder,
+  value,
+  onChange,
   onSend,
+  busy,
+  placeholder,
+  voiceMode,
   wakeWord,
-  wakeWordEnabled,
+  onOpenVoiceSettings,
 }: {
-  disabled: boolean;
-  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
   onSend: (message: string) => void;
-  wakeWord?: string;
-  wakeWordEnabled?: boolean;
+  busy: boolean;
+  placeholder: string;
+  voiceMode: VoiceMode;
+  wakeWord: string;
+  onOpenVoiceSettings: () => void;
 }) {
-  const [value, setValue] = useState("");
-  const [isVoiceActive, setIsVoiceActive] = useState(false);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const busyRef = useRef(busy);
+  const pressTimerRef = useRef<number | null>(null);
+  const longPressedRef = useRef(false);
+
+  useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
+
+  const voice = useVoiceInput({
+    mode: voiceMode,
+    wakeWord,
+    onTranscript: (text, from) => {
+      // Direct mode: the farmer reviews the words before sending. Wake word
+      // mode is hands-free, so the command goes straight to FarmMind unless
+      // it is still answering, in which case it waits in the input.
+      if (from === "direct" || busyRef.current) {
+        onChange(text);
+        inputRef.current?.focus();
+        return;
+      }
+      onSend(text);
+    },
+  });
+
+  const hasText = value.trim().length > 0;
+  const showMic = voice.supported && !hasText;
+  const shownValue = voice.listening && voice.interim ? voice.interim : value;
+  const shownPlaceholder = !voice.listening
+    ? placeholder
+    : voiceMode === "wakeWord"
+      ? `Listening for "${displayWakeWord(wakeWord)}"…`
+      : "Listening… speak now";
 
   function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!value.trim() || disabled) return;
+    if (!hasText || busy) return;
     onSend(value);
-    setValue("");
+    onChange("");
   }
 
-  function handleVoiceTranscript(transcript: string) {
-    // Voice input sends the transcript directly
-    if (transcript.trim()) {
-      onSend(transcript);
+  function clearPress() {
+    if (pressTimerRef.current !== null) {
+      window.clearTimeout(pressTimerRef.current);
+      pressTimerRef.current = null;
     }
-    setIsVoiceActive(false);
   }
+
+  function handlePressStart() {
+    longPressedRef.current = false;
+    clearPress();
+    pressTimerRef.current = window.setTimeout(() => {
+      longPressedRef.current = true;
+      voice.stop();
+      onOpenVoiceSettings();
+    }, LONG_PRESS_MS);
+  }
+
+  function handleMicClick() {
+    clearPress();
+    if (longPressedRef.current) {
+      longPressedRef.current = false;
+      return;
+    }
+    voice.toggle();
+  }
+
+  const status = voice.error
+    ? { text: voice.error, alert: true }
+    : voice.listening && voiceMode === "wakeWord"
+      ? { text: "Hands-free is on. Tap the mic to stop.", alert: false }
+      : null;
 
   return (
-    <div className="message-bar-container">
-      <form className="message-bar" onSubmit={handleSubmit}>
+    <div className="composer">
+      {status && (
+        <p
+          className={`composer-status${status.alert ? " composer-status-error" : ""}`}
+          role={status.alert ? "alert" : "status"}
+        >
+          {status.text}
+        </p>
+      )}
+      <form className="composer-row" onSubmit={handleSubmit}>
         <label className="sr-only" htmlFor="farm-message">
           Describe what happened on your farm
         </label>
-
-        {/* Voice Input Component */}
-        <div className="voice-input-wrapper">
-          <VoiceInput
-            onTranscript={handleVoiceTranscript}
-            wakeWord={wakeWord}
-            wakeWordEnabled={wakeWordEnabled}
-            disabled={disabled}
-          />
-        </div>
-
         <input
+          ref={inputRef}
           id="farm-message"
+          className="composer-input"
           type="text"
-          value={value}
-          onChange={(event) => setValue(event.target.value)}
-          placeholder={placeholder}
-          disabled={disabled || isVoiceActive}
+          value={shownValue}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder={shownPlaceholder}
+          readOnly={voice.listening}
           autoComplete="off"
+          enterKeyHint="send"
         />
-        <button type="submit" disabled={disabled || !value.trim()}>
-          Send
-        </button>
+        {showMic ? (
+          <button
+            type="button"
+            className={`action-button mic-button mic-${voice.state}`}
+            onClick={handleMicClick}
+            onPointerDown={handlePressStart}
+            onPointerUp={clearPress}
+            onPointerLeave={clearPress}
+            onContextMenu={(event) => event.preventDefault()}
+            aria-label={
+              voice.listening
+                ? "Stop listening"
+                : voiceMode === "wakeWord"
+                  ? `Start hands-free listening for ${displayWakeWord(wakeWord)}`
+                  : "Speak a message"
+            }
+            aria-pressed={voice.listening}
+            title="Tap to speak. Hold for voice settings."
+          >
+            <MicIcon />
+            {voiceMode === "wakeWord" && (
+              <span className="mic-badge" aria-hidden="true">
+                👂
+              </span>
+            )}
+          </button>
+        ) : (
+          <button
+            type="submit"
+            className="action-button send-button"
+            disabled={!hasText || busy}
+            aria-label="Send"
+          >
+            <SendIcon />
+          </button>
+        )}
       </form>
-
-      <style jsx>{`
-        .message-bar-container {
-          position: relative;
-        }
-
-        .voice-input-wrapper {
-          position: absolute;
-          left: 8px;
-          top: 50%;
-          transform: translateY(-50%);
-          z-index: 10;
-        }
-      `}</style>
     </div>
   );
 }

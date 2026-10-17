@@ -14,8 +14,7 @@ export const wakeWordSchema = z
   .transform((value) => value.toLowerCase().replace(/\s+/g, " "));
 
 export type WakeWordMatch =
-  | { matched: false; command: null }
-  | { matched: true; command: string | null };
+  { matched: false; command: null } | { matched: true; command: string | null };
 
 // Words speech recognisers commonly put before a phrase.
 const FILLERS = new Set(["um", "umm", "uh", "er", "erm", "ah", "oh", "so"]);

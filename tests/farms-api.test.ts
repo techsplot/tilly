@@ -1,7 +1,15 @@
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { migrate } from "drizzle-orm/pglite/migrator";
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import * as schema from "../src/infrastructure/db/schema";
 
 const holder = vi.hoisted(() => ({ db: undefined as unknown }));
@@ -21,7 +29,12 @@ const OTHER_SESSION = "b".repeat(64);
 
 function request(
   url: string,
-  options: { session?: string; farm?: string; method?: string; body?: unknown } = {},
+  options: {
+    session?: string;
+    farm?: string;
+    method?: string;
+    body?: unknown;
+  } = {},
 ) {
   const cookies = [
     options.session ? `fieldledger_session=${options.session}` : null,
@@ -82,7 +95,9 @@ describe("farms API", () => {
     });
 
     it("defaults to the first farm without a farm cookie", async () => {
-      const response = await listFarms(request("/api/farms", { session: SESSION }));
+      const response = await listFarms(
+        request("/api/farms", { session: SESSION }),
+      );
       const body = (await response.json()) as { activeFarmId: string };
       expect(body.activeFarmId).toBe(homeId);
     });

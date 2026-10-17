@@ -106,7 +106,9 @@ describe("voice controller", () => {
       expect(voice.interims.at(-1)).toBe("I weeded");
 
       latest().speak("I weeded the north field");
-      expect(voice.transcripts).toEqual([["I weeded the north field", "direct"]]);
+      expect(voice.transcripts).toEqual([
+        ["I weeded the north field", "direct"],
+      ]);
       expect(voice.controller.listening).toBe(false);
       expect(voice.states.at(-1)).toBe("idle");
       expect(voice.onActivate).not.toHaveBeenCalled();
@@ -129,7 +131,9 @@ describe("voice controller", () => {
 
       latest().speak("Hey FarmMind, I sprayed the back field");
       expect(voice.onActivate).toHaveBeenCalledTimes(1);
-      expect(voice.transcripts).toEqual([["I sprayed the back field", "wakeWord"]]);
+      expect(voice.transcripts).toEqual([
+        ["I sprayed the back field", "wakeWord"],
+      ]);
       expect(voice.states).toContain("activated");
       expect(voice.controller.listening).toBe(true);
 
@@ -154,7 +158,9 @@ describe("voice controller", () => {
       expect(voice.onActivate).toHaveBeenCalledTimes(1);
       expect(voice.transcripts).toEqual([]);
       latest().speak("I fertilized the maize");
-      expect(voice.transcripts).toEqual([["I fertilized the maize", "wakeWord"]]);
+      expect(voice.transcripts).toEqual([
+        ["I fertilized the maize", "wakeWord"],
+      ]);
     });
 
     it("stops waiting for a command after a few seconds", () => {

@@ -51,7 +51,9 @@ export function getRecognitionConstructor(
     SpeechRecognition?: RecognitionConstructor;
     webkitSpeechRecognition?: RecognitionConstructor;
   };
-  return candidate.SpeechRecognition ?? candidate.webkitSpeechRecognition ?? null;
+  return (
+    candidate.SpeechRecognition ?? candidate.webkitSpeechRecognition ?? null
+  );
 }
 
 const NETWORK_RETRY_DELAYS = [1000, 2000, 4000];
@@ -238,7 +240,9 @@ export class VoiceController {
         return;
       }
     }
-    this.fail(ERROR_MESSAGES[error] ?? "Voice input stopped. Please try again.");
+    this.fail(
+      ERROR_MESSAGES[error] ?? "Voice input stopped. Please try again.",
+    );
   }
 
   private retryAfter(delay: number): void {

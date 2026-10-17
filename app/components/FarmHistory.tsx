@@ -1,82 +1,72 @@
 "use client";
 
 import type { SavedFarmEvent } from "@/app/hooks/useFarmAgent";
+import { formatDate } from "@/app/lib/format";
 
-function formatDateTime(event: SavedFarmEvent): string {
-  const date = event.eventDate
-    ? event.dateAssumed
-      ? "today"
-      : event.eventDate
-    : "Date missing";
-  if (event.eventTime) return `${date} ${event.eventTime.slice(0, 5)}`;
+function formatWhen(event: SavedFarmEvent): string {
+  const date = event.eventDate ? formatDate(event.eventDate) : "Date missing";
+  if (event.eventTime) return `${date}, ${event.eventTime.slice(0, 5)}`;
   if (event.timeOfDay) return `${date}, ${event.timeOfDay}`;
   return date;
 }
 
-function formatStatus(status: SavedFarmEvent["status"]): string {
-  switch (status) {
-    case "incomplete":
-      return "Needs a detail";
-    case "proposed":
-      return "Proposed";
-    case "confirmed":
-      return "Confirmed";
-    case "corrected":
-      return "Corrected";
-    case "rejected":
-      return "Rejected";
-  }
+// Farmers see whether a record is complete, not the review lifecycle.
+function plainStatus(event: SavedFarmEvent): string | null {
+  if (event.status === "incomplete") return "Needs a detail";
+  if (event.status === "corrected") return "Corrected";
+  return null;
 }
 
 export default function FarmHistory({
   history,
   loading,
+  error,
 }: {
   history: SavedFarmEvent[];
   loading: boolean;
+  error: string | null;
 }) {
+  const visible = history.filter((event) => event.status !== "rejected");
+
+  if (error) {
+    return (
+      <p className="drawer-note drawer-error" role="alert">
+        {error}
+      </p>
+    );
+  }
+  if (loading && visible.length === 0) {
+    return <p className="drawer-note">Loading your records…</p>;
+  }
+  if (visible.length === 0) {
+    return (
+      <p className="drawer-note">
+        No records yet. Tell FarmMind what happened on the farm and it will
+        appear here.
+      </p>
+    );
+  }
+
   return (
-    <section
-      className="feedback-card history-card"
-      aria-labelledby="history-heading"
-    >
-      <div className="result-heading">
-        <span className="icon-circle">⌂</span>
-        <div>
-          <p className="eyebrow">FARM HISTORY</p>
-          <h2 id="history-heading">Your saved records</h2>
-        </div>
-      </div>
-      {loading ? (
-        <p className="hint">Loading your farm history...</p>
-      ) : history.length === 0 ? (
-        <p className="hint">
-          No saved records yet. Tell FarmMind what happened on the farm.
-        </p>
-      ) : (
-        <div className="history-list">
-          {history.map((savedEvent) => (
-            <article className="history-item" key={savedEvent.id}>
-              <div>
-                <strong>{savedEvent.activity}</strong>
-                <p>
-                  {formatDateTime(savedEvent)} ·{" "}
-                  {savedEvent.crop ?? "Crop missing"} ·{" "}
-                  {savedEvent.field ?? "Field missing"}
-                </p>
-              </div>
-              <div className="history-actions">
-                <span className={`event-status ${savedEvent.status}`}>
-                  {formatStatus(savedEvent.status)}
-                </span>
-                {savedEvent.savedBy === "agent" && (
-                  <span className="by-agent-label">by FarmMind</span>
-                )}
-              </div>
-            </article>
-          ))}
-        </div>
-      )}
-    </section>
+    <ul className="record-list">
+      {visible.map((event) => {
+        const status = plainStatus(event);
+        const details = [event.crop, event.field].filter(Boolean).join(" · ");
+        return (
+          <li className="record" key={event.id}>
+            <div className="record-main">
+              <strong className="record-activity">{event.activity}</strong>
+              {details && <span className="record-details">{details}</span>}
+              <span className="record-when">{formatWhen(event)}</span>
+            </div>
+            {status && (
+              <span className={`record-status record-status-${event.status}`}>
+                {status}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
   );
 }
