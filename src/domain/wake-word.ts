@@ -32,7 +32,7 @@ function wakeKey(wakeWord: string): string {
 /**
  * Decides whether a transcript starts with the farm's wake word and returns
  * what was said after it. Runs in the browser so speech without the wake
- * word never leaves the device.
+ * word never reaches FarmMind's server.
  *
  * Spacing is ignored when comparing ("farm mind" matches "farmmind"), so is
  * punctuation and case. A wake word said in the middle of a sentence does

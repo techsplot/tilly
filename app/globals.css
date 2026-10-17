@@ -842,6 +842,12 @@ p {
   font-weight: 700;
 }
 
+.settings-note {
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
 .wake-preview {
   background: var(--soft-green);
   border-radius: 10px;

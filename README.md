@@ -33,7 +33,8 @@ Working today:
 
 - **Agent mode: save first, ask almost never.** A farmer types a message;
   `POST /api/agent` decides the intent (record, correct, delete, question, report)
-  with one Nemotron call. Only the activity is required to save — crop,
+  and which farm it is about with one Nemotron call (a second call happens
+  only when the message names a different farm, so its memory is used). Only the activity is required to save — crop,
   field, and a specific time are kept when said and left empty when not,
   and a missing date is assumed to be today. The record saves at once as
   `confirmed`, and the receipt names any gap ("Recorded: spraying · today
@@ -66,11 +67,33 @@ Working today:
 - Optional time of day: a stated time ("at 4pm") or a vague one ("this
   morning") is kept and shown in receipts and history; time is never a gap
   and never nudged about.
-- `saved_by` provenance (`agent` or `farmer`) on every record; Farm history
-  shows a "by FarmMind" label on agent-saved records.
-- A mobile-first interface: a fixed message bar (with a mic button placeholder
-  for Phase 8), an activity feed of what the agent did, and a Farm history tab
-  on mobile / side panel on desktop.
+- `saved_by` provenance (`agent` or `farmer`) on every record.
+- **A WhatsApp-style chat.** One conversation fills the screen: the
+  farmer's messages on the right, FarmMind's receipts, questions, and
+  answers on the left, each with a time. A new conversation opens with
+  example messages to tap. A header menu opens **My records** (loaded only
+  when opened, in plain words: "Needs a detail", "Corrected"), **Farms**
+  (switch or add a farm), and **Voice settings**, each in a drawer that is
+  a bottom sheet on phones and a side panel on desktop.
+- **Voice input.** The round button beside the message box is a mic when
+  the box is empty and Send when it has text. **Tap to speak** puts the
+  transcript in the box so the farmer can check it before sending.
+  **Hands-free** listens until stopped and sends only what follows the
+  farm's wake word ("Hey FarmMind", "OK Farm", "Hey Farm", or a custom
+  phrase), with a chime when it hears it. Hold the mic to open voice
+  settings. Speech recognition is the browser's own (Chrome and Edge; Token
+  Factory has no speech models on this account): **the browser vendor's
+  speech service (Google in Chrome, Microsoft in Edge) hears everything
+  said while the mic is on.** Wake word matching runs in the browser, so
+  only the words after the wake word are sent to FarmMind. Browsers without
+  speech recognition, such as Firefox, show only the Send button.
+- **Multiple farms.** A farmer can add farms and switch between them, or
+  name one in a message ("I weeded at River Farm"); code checks the name
+  against the farms that browser owns, and asks when it is unknown or
+  ambiguous.
+- **Smart suggestions** after a record, computed by code with no model
+  call: fields not weeded for 14+ days, recurring activities, and common
+  follow-ups (spraying → weeding).
 - PostgreSQL persistence through Drizzle, browser-scoped anonymous farms, and
   soft delete with a reversible correction trail.
 - Phase 4's confirmed-history retrieval for contextual references, with
@@ -90,12 +113,21 @@ Working today:
   proposal/confirm flow, or scripted access). They keep the older, blocking
   required-field policy; only agent mode follows the save-first rules above.
 - Run `pnpm db:migrate` after pulling to apply the `date_assumed`,
-  `event_time`/`time_of_day`, and `last_nudged_at`/`nudges_stopped` columns.
+  `event_time`/`time_of_day`, `last_nudged_at`/`nudges_stopped`, multi-farm,
+  and `wake_word`/`wake_word_enabled` columns.
 
-Not built yet: reminders delivered outside the app (Phase 9), evaluation
-results, and a hosted demo. Report and ask (the two other core verbs) land in
-Phase 6. The [implementation plan](.github/implementation-plan.md) tracks
-progress phase by phase.
+Not built yet: a hosted demo (Phase 10), reminders delivered outside the app
+(Phase 11), and evaluation results (Phase 13). The
+[implementation plan](.github/implementation-plan.md) tracks progress phase
+by phase.
+
+**An unfinished experiment:** `scripts/generate-wake-word-dataset.ts` and
+`scripts/train-wake-word-model.ts` were written to fine-tune Nemotron Nano
+as a wake word detector through Token Factory. That cannot run as written:
+Token Factory does not offer Nemotron for fine-tuning, and only two Llama
+models can be deployed per-token after fine-tuning. The scripts are kept
+for reference; nothing in the app depends on them, and wake words are
+matched in the browser instead.
 
 ## Prerequisites
 
@@ -142,7 +174,7 @@ pnpm install
 Copy-Item .env.example .env
 ```
 
-Set `NEBIUS_API_KEY`, `NEBIUS_MODEL_EXTRACTION`, `NEBIUS_MODEL_ANSWER`, and optionally `WAKE_WORD_MODEL_ID` in `.env`. Never commit `.env`.
+Set `NEBIUS_API_KEY`, `NEBIUS_MODEL_EXTRACTION`, and `NEBIUS_MODEL_ANSWER` in `.env`. Never commit `.env`.
 
 Set `DATABASE_URL` to a PostgreSQL connection string, then apply the committed
 migrations:

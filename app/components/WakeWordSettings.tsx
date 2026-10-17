@@ -74,11 +74,15 @@ export default function WakeWordSettings({
             <strong>Hands-free</strong>
             <small>
               Tap the mic once, then start each message with your wake word.
-              FarmMind only acts on what follows it, and other talk never leaves
-              your phone.
+              FarmMind only receives what you say after it.
             </small>
           </span>
         </label>
+        <p className="settings-note">
+          Your browser turns speech into text using its own service (Google in
+          Chrome, Microsoft in Edge), which hears everything said while the mic
+          is on.
+        </p>
       </fieldset>
 
       <fieldset className="settings-group">
