@@ -760,6 +760,88 @@ describe("farm agent service", () => {
     expect(await listTimeline(db, farmId)).toEqual([]);
   });
 
+  it("treats a different activity after a question as a new note, not an answer", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([completeEvent({ field: "North Field" })]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the north field today",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    // A reply naming a new activity is read carefully (thinking on), once.
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate.mock.calls[1]![0]).not.toHaveProperty(
+      "chat_template_kwargs",
+    );
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "recorded",
+    ]);
+    const activities = (await listTimeline(db, farmId))
+      .map((event) => event.activity)
+      .sort();
+    expect(activities).toEqual(["spraying", "weeding"]);
+  });
+
+  it("answers a question asked while a note is pending, after saving it", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([], {
+        intent: "question",
+        filter: { activity: "harvesting" },
+      }),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "when did I last harvest?",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toMatchObject([
+      { type: "recorded", event: { activity: "spraying" } },
+      { type: "answer", text: "I can't tell from your records." },
+    ]);
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+  });
+
+  it("dates 'on Monday' by the calendar, not the model", async () => {
+    const farmId = await createFarm(db);
+    // 2026-10-17 is a Saturday; the model wrongly says today.
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ activity: "planting", eventDate: "2026-10-17" }),
+      ]),
+    );
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I planted maize in the back field on Monday",
+      currentDate: "2026-10-17",
+      recentEventIds: [],
+    });
+    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(actions[0].event.eventDate).toBe("2026-10-12");
+  });
+
   it("still saves a pending note when the reply is only thanks", async () => {
     const farmId = await createFarm(db);
     mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));

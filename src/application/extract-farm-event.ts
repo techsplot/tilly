@@ -15,7 +15,9 @@ import {
   verifyMemoryReferences,
   type FarmMemory,
 } from "../domain/farm-memory";
+import { mentionedActivities } from "../domain/activity-words";
 import { looksLikeQuestion } from "../domain/question-shape";
+import { resolveWeekdayDate } from "../domain/weekday-date";
 import {
   createNebiusClient,
   getNebiusModel,
@@ -211,6 +213,23 @@ function needsCarefulRead(
   );
 }
 
+// A reply to FarmMind's question that is itself a question, or names an
+// activity the original note did not, needs the careful read from the
+// start. Live testing showed the fast mode storing "I sprayed" as the crop
+// of a pending weeding note and swallowing "when did I last spray?".
+function isDoubtfulAnswer(
+  farmerMessage: string,
+  clarifications: { question: string; answer: string }[] | undefined,
+): boolean {
+  const answer = clarifications?.at(-1)?.answer;
+  if (!answer) return false;
+  if (looksLikeQuestion(answer)) return true;
+  const original = mentionedActivities(farmerMessage);
+  return [...mentionedActivities(answer)].some(
+    (activity) => !original.has(activity),
+  );
+}
+
 export async function extractFarmEvent(
   farmerMessage: string,
   currentDate: string,
@@ -286,16 +305,32 @@ export async function extractFarmEvent(
   // about 20 s, and gets most messages right. It is asked again with
   // thinking on only when its reply is unusable or its intent is doubtful.
   let interaction: FarmInteraction;
-  try {
-    interaction = await requestInteraction(false);
-  } catch (error) {
-    if (!(error instanceof InvalidModelReplyError)) throw error;
+  if (isDoubtfulAnswer(farmerMessage, clarifications)) {
     interaction = await requestInteraction(true);
-  }
-  if (needsCarefulRead(interaction.intent, farmerMessage, clarifications)) {
-    interaction = await requestInteraction(true);
+  } else {
+    try {
+      interaction = await requestInteraction(false);
+    } catch (error) {
+      if (!(error instanceof InvalidModelReplyError)) throw error;
+      interaction = await requestInteraction(true);
+    }
+    if (needsCarefulRead(interaction.intent, farmerMessage, clarifications)) {
+      interaction = await requestInteraction(true);
+    }
   }
   const result = { data: interaction };
+
+  // Weekday names are resolved by code, not the model: live testing saved
+  // "I planted maize on Monday" as today. Only for a single event, so "on
+  // Monday" cannot move a second activity said to be today.
+  const farmerWords = [
+    farmerMessage,
+    ...(clarifications ?? []).map((clarification) => clarification.answer),
+  ].join(" ");
+  const weekdayDate =
+    result.data.events.length === 1
+      ? resolveWeekdayDate(farmerWords, currentDate)
+      : null;
 
   const verifiedEvents = result.data.events.map((event) => {
     const verified = verifyMemoryReferences(
@@ -316,6 +351,7 @@ export async function extractFarmEvent(
       ...event,
       ...verified.event,
       ...resolveTimeFields(event.eventTime ?? null, event.timeOfDay ?? null),
+      ...(weekdayDate ? { eventDate: weekdayDate } : {}),
       resolvedFromMemory: verified.resolvedFromMemory,
       unresolvedReferences: verified.unresolvedReferences,
     };

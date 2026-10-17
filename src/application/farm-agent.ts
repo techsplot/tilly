@@ -683,6 +683,20 @@ async function handlePendingClarification(
     ];
   if (interaction.intent === "delete")
     return [ended, ...(await applyDelete(db, farmId, extendedRecentIds))];
+  // A question asked instead of an answer ("when did I last spray?") is
+  // answered after the note's receipt; it used to be dropped.
+  if (interaction.intent === "question" || interaction.intent === "report")
+    return [
+      ended,
+      ...(await routeInteraction(
+        db,
+        farmId,
+        message,
+        currentDate,
+        interaction,
+        extendedRecentIds,
+      )),
+    ];
   // A reply with no activity ("I don't know", "skip") just ends the note;
   // it is not an unsupported request.
   if (interaction.intent === "other" || interaction.events.length === 0)
