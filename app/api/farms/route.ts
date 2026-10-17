@@ -2,7 +2,7 @@ import { z } from "zod";
 import {
   getFarmContext,
   sessionCookieHeader,
-  getSessionId,
+  farmCookieHeader,
 } from "@/src/application/farm-context";
 import { getDb } from "@/src/infrastructure/db/client";
 import {
@@ -10,13 +10,24 @@ import {
   createFarm,
 } from "@/src/infrastructure/db/farm-event-repository";
 
-// GET /api/farms - List all farms for the current session
+// GET /api/farms - List the session's farms and which one is active. A
+// first visit creates the session and its first farm here.
 export async function GET(request: Request): Promise<Response> {
   try {
     const db = getDb();
-    const sessionId = await getSessionId(request);
-    const farms = await listFarmsBySession(db, sessionId);
-    return Response.json({ farms });
+    const context = await getFarmContext(db, request);
+    const farms = await listFarmsBySession(db, context.sessionId);
+    const response = Response.json({
+      farms: farms.map(({ id, name }) => ({ id, name })),
+      activeFarmId: context.farmId,
+    });
+    const cookies: string[] = [];
+    if (context.isNewSession)
+      cookies.push(sessionCookieHeader(context.sessionId));
+    if (context.isNewFarm) cookies.push(farmCookieHeader(context.farmId));
+    if (cookies.length > 0)
+      response.headers.set("Set-Cookie", cookies.join(", "));
+    return response;
   } catch (error) {
     console.error("List farms failed", error);
     return Response.json({ error: "Failed to list farms." }, { status: 500 });

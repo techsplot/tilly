@@ -1,129 +1,80 @@
-import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
+import { getSessionId, isUuid } from "@/src/application/farm-context";
+import { wakeWordSchema } from "@/src/domain/wake-word";
 import { getDb } from "@/src/infrastructure/db/client";
-import { farms } from "@/src/infrastructure/db/schema";
-import { eq, and } from "drizzle-orm";
-import { cookies } from "next/headers";
+import {
+  findFarmVoiceSettings,
+  updateFarmVoiceSettings,
+} from "@/src/infrastructure/db/farm-event-repository";
 
-const wakeWordSettingsSchema = z.object({
-  wakeWord: z
-    .string()
-    .min(2, "Wake word must be at least 2 characters")
-    .max(50, "Wake word must be at most 50 characters")
-    .regex(/^[a-zA-Z\s]+$/, "Wake word can only contain letters and spaces"),
+const voiceSettingsSchema = z.object({
+  wakeWord: wakeWordSchema,
   wakeWordEnabled: z.boolean(),
 });
 
-/**
- * GET /api/farms/:id/settings
- * Get wake word settings for a farm
- */
+type RouteContext = { params: Promise<{ id: string }> };
+
+const notFound = () =>
+  Response.json({ error: "Farm not found." }, { status: 404 });
+
+// GET /api/farms/:id/settings - voice settings for a farm this session owns
 export async function GET(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+  request: Request,
+  { params }: RouteContext,
+): Promise<Response> {
+  const { id } = await params;
+  if (!isUuid(id)) return notFound();
   try {
-    const { id } = await params;
-    const sessionId = (await cookies()).get("farm_session")?.value;
-
-    if (!sessionId) {
-      return NextResponse.json({ error: "No session found" }, { status: 401 });
-    }
-
-    const db = getDb();
-    const [farm] = await db
-      .select({
-        id: farms.id,
-        wakeWord: farms.wakeWord,
-        wakeWordEnabled: farms.wakeWordEnabled,
-      })
-      .from(farms)
-      .where(eq(farms.id, id))
-      .limit(1);
-
-    if (!farm) {
-      return NextResponse.json({ error: "Farm not found" }, { status: 404 });
-    }
-
-    // Verify ownership
-    const [ownedFarm] = await db
-      .select({ id: farms.id })
-      .from(farms)
-      .where(and(eq(farms.id, id), eq(farms.sessionId, sessionId)))
-      .limit(1);
-
-    if (!ownedFarm) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-
-    return NextResponse.json({
-      wakeWord: farm.wakeWord,
-      wakeWordEnabled: farm.wakeWordEnabled,
-    });
+    const sessionId = await getSessionId(request);
+    const settings = await findFarmVoiceSettings(getDb(), id, sessionId);
+    return settings ? Response.json(settings) : notFound();
   } catch (error) {
-    console.error("Error fetching wake word settings:", error);
-    return NextResponse.json(
-      { error: "Failed to fetch settings" },
+    console.error("Load voice settings failed", error);
+    return Response.json(
+      { error: "Voice settings could not be loaded." },
       { status: 500 },
     );
   }
 }
 
-/**
- * PATCH /api/farms/:id/settings
- * Update wake word settings for a farm
- */
+// PATCH /api/farms/:id/settings - replace the wake word and its switch
 export async function PATCH(
-  request: NextRequest,
-  { params }: { params: Promise<{ id: string }> },
-) {
+  request: Request,
+  { params }: RouteContext,
+): Promise<Response> {
+  const { id } = await params;
+  if (!isUuid(id)) return notFound();
+
+  let body: unknown;
   try {
-    const { id } = await params;
-    const sessionId = (await cookies()).get("farm_session")?.value;
+    body = await request.json();
+  } catch {
+    return Response.json(
+      { error: "Please send a valid JSON request." },
+      { status: 400 },
+    );
+  }
+  const parsed = voiceSettingsSchema.safeParse(body);
+  if (!parsed.success) {
+    return Response.json(
+      { error: parsed.error.issues[0]?.message ?? "Invalid settings." },
+      { status: 400 },
+    );
+  }
 
-    if (!sessionId) {
-      return NextResponse.json({ error: "No session found" }, { status: 401 });
-    }
-
-    const db = getDb();
-    // Verify ownership
-    const [ownedFarm] = await db
-      .select({ id: farms.id })
-      .from(farms)
-      .where(and(eq(farms.id, id), eq(farms.sessionId, sessionId)))
-      .limit(1);
-
-    if (!ownedFarm) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 403 });
-    }
-
-    const body = await request.json();
-    const validated = wakeWordSettingsSchema.parse(body);
-
-    // Update settings
-    await db
-      .update(farms)
-      .set({
-        wakeWord: validated.wakeWord.toLowerCase().trim(),
-        wakeWordEnabled: validated.wakeWordEnabled,
-      })
-      .where(eq(farms.id, id));
-
-    return NextResponse.json({
-      wakeWord: validated.wakeWord.toLowerCase().trim(),
-      wakeWordEnabled: validated.wakeWordEnabled,
-    });
+  try {
+    const sessionId = await getSessionId(request);
+    const settings = await updateFarmVoiceSettings(
+      getDb(),
+      id,
+      sessionId,
+      parsed.data,
+    );
+    return settings ? Response.json(settings) : notFound();
   } catch (error) {
-    if (error instanceof z.ZodError) {
-      return NextResponse.json(
-        { error: "Invalid settings", details: error.issues },
-        { status: 400 },
-      );
-    }
-
-    console.error("Error updating wake word settings:", error);
-    return NextResponse.json(
-      { error: "Failed to update settings" },
+    console.error("Save voice settings failed", error);
+    return Response.json(
+      { error: "Voice settings could not be saved." },
       { status: 500 },
     );
   }
