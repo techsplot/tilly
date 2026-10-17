@@ -227,7 +227,32 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind is not fully configured for questions and reports. Set the answer model and try again.",
+        "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+    });
+  });
+
+  it("names the extraction model when that is the one missing", async () => {
+    mockHandleFarmerMessage.mockRejectedValue(
+      new ModelConfigurationError(
+        "NEBIUS_MODEL_EXTRACTION is required.",
+        "extraction",
+      ),
+    );
+
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "I weeded today",
+          currentDate: "2026-10-12",
+          recentEventIds: [],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
     });
   });
 
