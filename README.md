@@ -123,13 +123,27 @@ Do not paste the key into source code, commit it, or share it in chat. The
 
 ## Setup
 
+Install pnpm globally:
+
+```powershell
+npm install -g pnpm@10.18.2
+```
+
+Or enable corepack (requires admin):
+
 ```powershell
 corepack enable
+```
+
+Then install dependencies:
+
+```powershell
 pnpm install
 Copy-Item .env.example .env
 ```
 
-Set `NEBIUS_API_KEY` and `NEBIUS_MODEL` in `.env`. Never commit `.env`.
+Set `NEBIUS_API_KEY`, `NEBIUS_MODEL_EXTRACTION`, `NEBIUS_MODEL_ANSWER`, and optionally `WAKE_WORD_MODEL_ID` in `.env`. Never commit `.env`.
+
 Set `DATABASE_URL` to a PostgreSQL connection string, then apply the committed
 migrations:
 
@@ -137,8 +151,7 @@ migrations:
 pnpm db:migrate
 ```
 
-Run `pnpm db:migrate` again after pulling later schema migrations, including
-the Phase 5 migration that adds `saved_by` and `deleted_at` to `farm_events`.
+Run `pnpm db:migrate` again after pulling later schema migrations.
 
 The browser receives an anonymous farm cookie. Clearing browser data starts a
 new farm; there is no login in this phase.
