@@ -11,6 +11,7 @@ import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
 import { resolveFarmReference } from "./farm-resolver";
+import { classifySmallTalk, type SmallTalk } from "../domain/small-talk";
 import {
   changedFields,
   correctRecordedEvent,
@@ -112,7 +113,19 @@ export type HandleFarmerMessageInput = {
 const NOTHING_TO_TARGET_REPLY =
   "I don't have a recent record to change. Tell me what you did.";
 const UNSUPPORTED_REPLY =
-  "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.";
+  "I can't help with that. I keep your farm records: tell me what you did, ask what you've done, or ask for a report.";
+const REMINDER_REPLY =
+  "I can't set reminders yet. For now, tell me what you did, ask what you've done, or ask for a report.";
+const SMALL_TALK_REPLIES: Record<SmallTalk, string> = {
+  greeting:
+    "Hello! Tell me what you did on the farm today, or ask me about your records.",
+  thanks: "You're welcome.",
+  farewell: "Goodbye! Your records are saved.",
+};
+
+function unsupportedReply(message: string): string {
+  return /\bremind/i.test(message) ? REMINDER_REPLY : UNSUPPORTED_REPLY;
+}
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity, ask a question, or request a report.";
 const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
@@ -554,7 +567,7 @@ async function routeInteraction(
     ];
   }
   if (interaction.intent === "other")
-    return [{ type: "reply", text: UNSUPPORTED_REPLY }];
+    return [{ type: "reply", text: unsupportedReply(message) }];
   return applyRecordFlow(
     db,
     farmId,
@@ -844,6 +857,12 @@ export async function handleFarmerMessage(
       recentEventIds,
     );
   }
+
+  // A bare greeting or thanks needs no model call. Only checked with
+  // nothing pending: a reply to a question must still end and save it.
+  const smallTalk = classifySmallTalk(input.message);
+  if (smallTalk)
+    return [{ type: "reply", text: SMALL_TALK_REPLIES[smallTalk] }];
 
   return handleNewMessage(
     db,

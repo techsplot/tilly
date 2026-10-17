@@ -709,16 +709,76 @@ describe("farm agent service", () => {
     mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
-      message: "hello",
+      message: "what will the weather be tomorrow?",
       currentDate: "2026-10-12",
       recentEventIds: [],
     });
 
-    expect(actions[0]).toEqual({
-      type: "reply",
-      text: "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.",
-    });
+    expect(actions).toEqual([
+      {
+        type: "reply",
+        text: "I can't help with that. I keep your farm records: tell me what you did, ask what you've done, or ask for a report.",
+      },
+    ]);
     expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+
+  it("says reminders are not available yet when asked for one", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "remind me to weed in two weeks",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions[0]).toMatchObject({
+      type: "reply",
+      text: expect.stringContaining("I can't set reminders yet"),
+    });
+  });
+
+  it("answers a greeting without calling the model", async () => {
+    const farmId = await createFarm(db);
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "Hello!",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions).toEqual([
+      {
+        type: "reply",
+        text: "Hello! Tell me what you did on the farm today, or ask me about your records.",
+      },
+    ]);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+
+  it("still saves a pending note when the reply is only thanks", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    await handleFarmerMessage(db, farmId, {
+      message: "thanks",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    const timeline = await listTimeline(db, farmId);
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.activity).toBe("spraying");
   });
 
   it("propagates a model failure and saves nothing", async () => {
