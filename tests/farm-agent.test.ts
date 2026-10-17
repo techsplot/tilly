@@ -706,7 +706,8 @@ describe("farm agent service", () => {
 
   it("replies and saves nothing for an unsupported intent", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    // "other" is read a second time with thinking on.
+    mockCreate.mockResolvedValue(modelResponse([], { intent: "other" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "what will the weather be tomorrow?",
@@ -725,7 +726,8 @@ describe("farm agent service", () => {
 
   it("says reminders are not available yet when asked for one", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    // "other" is read a second time with thinking on.
+    mockCreate.mockResolvedValue(modelResponse([], { intent: "other" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "remind me to weed in two weeks",
@@ -1053,6 +1055,33 @@ describe("question phrasing helpers", () => {
     expect(
       buildFollowUpQuestion("Got it, spraying. Which field was it?", ["field"]),
     ).toBe("Got it, spraying. Which field was it?");
+    expect(
+      buildFollowUpQuestion(
+        "Got it, spraying. Which field, and was it today?",
+        ["field", "eventDate"],
+      ),
+    ).toBe("Got it, spraying. Which field, and was it today?");
+  });
+
+  it("ignores model phrasing that does not ask for the missing details", () => {
+    // Seen in live testing: a missing crop answered with a vague question.
+    expect(
+      buildFollowUpQuestion(
+        "Got it, weeding the north field this morning. Anything else you'd like to record?",
+        ["crop"],
+      ),
+    ).toBe("Got it. Can you tell me which crop?");
+    // Asks about a field that was already given.
+    expect(
+      buildFollowUpQuestion(
+        "Got it, weeding. Which field was it, and what crop?",
+        ["crop"],
+      ),
+    ).toBe("Got it. Can you tell me which crop?");
+    // Not a question at all.
+    expect(buildFollowUpQuestion("Recorded the crop.", ["crop"])).toBe(
+      "Got it. Can you tell me which crop?",
+    );
   });
 
   it("builds fixed nudge wording from the record", () => {

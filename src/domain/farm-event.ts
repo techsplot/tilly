@@ -43,8 +43,11 @@ export const farmEventCandidateSchema = z.object({
   eventDate: z.iso.date().nullable(),
   quantity: z.number().nullable(),
   unit: z.string().nullable(),
-  fieldSource: z.enum(["message", "memory"]).nullable().optional(),
-  cropSource: z.enum(["message", "memory"]).nullable().optional(),
+  // An unrecognised source label is read as "not stated" instead of
+  // failing the whole reply: memory claims are verified deterministically
+  // afterwards, so a bad label cannot smuggle in a value.
+  fieldSource: z.enum(["message", "memory"]).nullable().optional().catch(null),
+  cropSource: z.enum(["message", "memory"]).nullable().optional().catch(null),
   memoryEventIds: z.array(z.string()).optional(),
   eventTime: eventTimeSchema.optional(),
   timeOfDay: farmTimeOfDaySchema.nullable().optional(),

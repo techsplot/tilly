@@ -8,6 +8,8 @@ describe("classifySmallTalk", () => {
     ["Good morning FarmMind", "greeting"],
     ["hello there", "greeting"],
     ["Hello, how are you?", "greeting"],
+    ["whatsup", "greeting"],
+    ["What's up?", "greeting"],
     ["E kaaro", "greeting"],
     ["Thank you!", "thanks"],
     ["ok thanks", "thanks"],

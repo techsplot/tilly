@@ -160,15 +160,38 @@ const detailLabel: Record<string, string> = {
   field: "which field",
 };
 
+// How a question shows it is asking about each detail.
+const detailMention: Record<string, RegExp> = {
+  eventDate: /\b(when|today|yesterday|date|day)\b/i,
+  crop: /\bcrops?\b/i,
+  field: /\b(fields?|where)\b/i,
+};
+
+// The model's sentence is used only if it is a question about exactly the
+// missing details: live testing produced "Anything else you'd like to
+// record?" for a missing crop, and "Which field was it?" when the field had
+// been given.
+function asksForExactly(question: string, missingDetails: string[]): boolean {
+  if (!question.includes("?")) return false;
+  const asksMissing = missingDetails.every(
+    (detail) => detailMention[detail]?.test(question) ?? false,
+  );
+  const asksKnown = (["crop", "field"] as const).some(
+    (detail) =>
+      !missingDetails.includes(detail) && detailMention[detail]!.test(question),
+  );
+  return asksMissing && !asksKnown;
+}
+
 // Finding 9: the application decides when a question is needed and which
 // details to ask about; Nemotron only phrases it. If the model's sentence
-// is missing or empty, fall back to a fixed, deterministic question.
+// does not ask for exactly those details, fall back to a fixed question.
 export function buildFollowUpQuestion(
   followUpQuestion: string | null | undefined,
   missingDetails: string[],
 ): string {
   const trimmed = followUpQuestion?.trim();
-  if (trimmed) return trimmed;
+  if (trimmed && asksForExactly(trimmed, missingDetails)) return trimmed;
   const phrases = missingDetails.map(
     (detail) => detailLabel[detail] ?? `which ${detail}`,
   );

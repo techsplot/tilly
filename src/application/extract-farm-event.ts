@@ -15,6 +15,7 @@ import {
   verifyMemoryReferences,
   type FarmMemory,
 } from "../domain/farm-memory";
+import { looksLikeQuestion } from "../domain/question-shape";
 import {
   createNebiusClient,
   getNebiusModel,
@@ -188,6 +189,28 @@ function applyInteractionPolicy(
   };
 }
 
+// A reply that could not be used; worth asking again, unlike a timeout or
+// a configuration error.
+class InvalidModelReplyError extends Error {}
+
+// In an evaluation of 14 typical messages (2026-10-17), the fast mode got
+// 11 right; all three misses were "question" for something else ("I
+// sprayed", a weather question, a reminder request). An answer is checked
+// again when it is "question" or "report" but the message is not worded as
+// one, or "other", which drops the message.
+function needsCarefulRead(
+  intent: FarmInteraction["intent"],
+  farmerMessage: string,
+  clarifications: { question: string; answer: string }[] | undefined,
+): boolean {
+  if (clarifications && clarifications.length > 0) return false;
+  if (intent === "other") return true;
+  return (
+    (intent === "question" || intent === "report") &&
+    !looksLikeQuestion(farmerMessage)
+  );
+}
+
 export async function extractFarmEvent(
   farmerMessage: string,
   currentDate: string,
@@ -216,37 +239,63 @@ export async function extractFarmEvent(
   if (farmMemory.fields.length > 0 || farmMemory.recentEvents.length > 0)
     userContent.farmMemory = farmMemory;
 
-  const response = await client.chat.completions.create({
-    model: getNebiusModel("extraction"),
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: extractionInstructions },
-      {
-        role: "user",
-        content: JSON.stringify(userContent),
-      },
-    ],
-  });
+  const model = getNebiusModel("extraction");
+  async function requestInteraction(thinking: boolean) {
+    const response = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: extractionInstructions },
+        {
+          role: "user",
+          content: JSON.stringify(userContent),
+        },
+      ],
+      // Nemotron Nano reasons before answering unless told not to. Not an
+      // OpenAI parameter, so the SDK passes it through to Token Factory.
+      ...(thinking ? {} : { chat_template_kwargs: { enable_thinking: false } }),
+    });
 
-  const content = response.choices[0]?.message.content;
-  if (!content) {
-    throw new Error("Nebius returned an empty model response.");
+    const content = response.choices[0]?.message.content;
+    if (!content) {
+      throw new InvalidModelReplyError(
+        "Nebius returned an empty model response.",
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new InvalidModelReplyError("Nebius returned invalid JSON.", {
+        cause: error,
+      });
+    }
+
+    const validated = farmInteractionSchema.safeParse(parsed);
+    if (!validated.success) {
+      throw new InvalidModelReplyError(
+        `Model response failed FarmInteraction validation: ${validated.error.message}`,
+      );
+    }
+    return validated.data;
   }
 
-  let parsed: unknown;
+  // Fast first: with thinking off, Nano answers in about 2 s instead of
+  // about 20 s, and gets most messages right. It is asked again with
+  // thinking on only when its reply is unusable or its intent is doubtful.
+  let interaction: FarmInteraction;
   try {
-    parsed = JSON.parse(content);
+    interaction = await requestInteraction(false);
   } catch (error) {
-    throw new Error("Nebius returned invalid JSON.", { cause: error });
+    if (!(error instanceof InvalidModelReplyError)) throw error;
+    interaction = await requestInteraction(true);
   }
-
-  const result = farmInteractionSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(
-      `Model response failed FarmInteraction validation: ${result.error.message}`,
-    );
+  if (needsCarefulRead(interaction.intent, farmerMessage, clarifications)) {
+    interaction = await requestInteraction(true);
   }
+  const result = { data: interaction };
 
   const verifiedEvents = result.data.events.map((event) => {
     const verified = verifyMemoryReferences(
