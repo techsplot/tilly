@@ -6,20 +6,26 @@ import {
 } from "@/src/application/farm-context";
 import { getDb } from "@/src/infrastructure/db/client";
 import {
-  listFarmsBySession,
   createFarm,
+  findLatestRecord,
+  listFarmsBySession,
 } from "@/src/infrastructure/db/farm-event-repository";
 
-// GET /api/farms - List the session's farms and which one is active. A
-// first visit creates the session and its first farm here.
+// GET /api/farms - List the session's farms, which one is active, and its
+// latest record for the greeting. A first visit creates the session and its
+// first farm here.
 export async function GET(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const context = await getFarmContext(db, request);
-    const farms = await listFarmsBySession(db, context.sessionId);
+    const [farms, lastRecord] = await Promise.all([
+      listFarmsBySession(db, context.sessionId),
+      findLatestRecord(db, context.farmId),
+    ]);
     const response = Response.json({
       farms: farms.map(({ id, name }) => ({ id, name })),
       activeFarmId: context.farmId,
+      lastRecord,
     });
     const cookies: string[] = [];
     if (context.isNewSession)

@@ -91,6 +91,61 @@ describe("farms API", () => {
           { id: riverId, name: "River Farm" },
         ],
         activeFarmId: riverId,
+        lastRecord: null,
+      });
+    });
+
+    it("returns the active farm's latest record, skipping rejected and deleted ones", async () => {
+      const note = {
+        farmId: riverId,
+        crop: null,
+        missingFields: [],
+        sourceText: "note",
+        status: "confirmed" as const,
+      };
+      await db.insert(schema.farmEvents).values([
+        {
+          ...note,
+          activity: "planting",
+          fieldName: "Back Field",
+          eventDate: "2026-10-10",
+        },
+        {
+          ...note,
+          activity: "weeding",
+          fieldName: "North Field",
+          eventDate: "2026-10-15",
+        },
+        {
+          ...note,
+          activity: "spraying",
+          fieldName: "North Field",
+          eventDate: "2026-10-16",
+          status: "rejected",
+        },
+        {
+          ...note,
+          activity: "harvesting",
+          fieldName: "Back Field",
+          eventDate: "2026-10-17",
+          deletedAt: new Date(),
+        },
+        {
+          ...note,
+          farmId: homeId,
+          activity: "irrigation",
+          eventDate: "2026-10-17",
+        },
+      ]);
+      const response = await listFarms(
+        request("/api/farms", { session: SESSION, farm: riverId }),
+      );
+      const body = (await response.json()) as { lastRecord: unknown };
+      expect(body.lastRecord).toEqual({
+        activity: "weeding",
+        crop: null,
+        field: "North Field",
+        eventDate: "2026-10-15",
       });
     });
 

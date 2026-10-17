@@ -11,6 +11,7 @@ import MessageBar from "@/app/components/MessageBar";
 import WakeWordSettings, {
   type VoiceSettings,
 } from "@/app/components/WakeWordSettings";
+import { buildGreeting } from "@/app/lib/greeting";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
 
 const DRAWER_TITLES: Record<MenuChoice, string> = {
@@ -128,7 +129,11 @@ export default function HomePage() {
             error={agent.error}
             onUndo={agent.undo}
             onRetry={agent.retry}
-            onExample={setDraft}
+            greeting={
+              activeFarmId
+                ? buildGreeting(agent.activeFarmName, agent.lastRecord)
+                : null
+            }
           />
           <div ref={feedEndRef} />
         </div>

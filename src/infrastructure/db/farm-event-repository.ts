@@ -6,6 +6,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   sql,
   count,
 } from "drizzle-orm";
@@ -448,6 +449,42 @@ export async function listFarmEvents(
       desc(farmEvents.createdAt),
     )
     .limit(200);
+}
+
+export type LatestRecord = {
+  activity: FarmEventRow["activity"];
+  crop: string | null;
+  field: string | null;
+  eventDate: string | null;
+};
+
+// The record a greeting can mention: the most recent by event date that
+// the farmer has not deleted or rejected.
+export async function findLatestRecord(
+  db: Database,
+  farmId: string,
+): Promise<LatestRecord | null> {
+  const [row] = await db
+    .select({
+      activity: farmEvents.activity,
+      crop: farmEvents.crop,
+      field: farmEvents.fieldName,
+      eventDate: farmEvents.eventDate,
+    })
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        isNull(farmEvents.deletedAt),
+        ne(farmEvents.status, "rejected"),
+      ),
+    )
+    .orderBy(
+      sql`${farmEvents.eventDate} DESC NULLS LAST`,
+      desc(farmEvents.createdAt),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 export async function loadMemoryFields(

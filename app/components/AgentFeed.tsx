@@ -9,12 +9,6 @@ import type {
 } from "@/app/hooks/useFarmAgent";
 import { formatClock, formatDate } from "@/app/lib/format";
 
-const EXAMPLES = [
-  "I weeded the north field today",
-  "I planted maize in the back field",
-  "What did I do this week?",
-];
-
 function formatFieldLabel(field: string): string {
   if (field === "eventDate") return "date";
   if (field === "eventTime") return "time";
@@ -292,7 +286,7 @@ export default function AgentFeed({
   error,
   onUndo,
   onRetry,
-  onExample,
+  greeting,
 }: {
   items: FeedItem[];
   isLoading: boolean;
@@ -300,7 +294,8 @@ export default function AgentFeed({
   error: string | null;
   onUndo: (itemId: string, action: UndoableAgentAction) => void;
   onRetry: (itemId: string) => void;
-  onExample: (text: string) => void;
+  // Shown while the conversation is empty; null until the farm has loaded.
+  greeting: string | null;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -312,24 +307,9 @@ export default function AgentFeed({
 
   return (
     <div className="feed" aria-live="polite">
-      {items.length === 0 && !isLoading && (
+      {items.length === 0 && !isLoading && greeting && (
         <Bubble from="agent">
-          <p>
-            Tell me what happened on the farm, in your own words. I&apos;ll keep
-            the record, and you can ask me about it any time.
-          </p>
-          <div className="example-chips">
-            {EXAMPLES.map((example) => (
-              <button
-                key={example}
-                type="button"
-                className="example-chip"
-                onClick={() => onExample(example)}
-              >
-                {example}
-              </button>
-            ))}
-          </div>
+          <p>{greeting}</p>
         </Bubble>
       )}
       {items.map((item) =>

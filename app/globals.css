@@ -383,28 +383,6 @@ p {
   color: var(--muted);
 }
 
-.example-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin: 10px 0 4px;
-}
-
-.example-chip {
-  background: var(--soft-green);
-  border: 1px solid #cfe2cc;
-  border-radius: 999px;
-  color: var(--green-dark);
-  font-size: 13px;
-  min-height: 36px;
-  padding: 6px 12px;
-  text-align: left;
-}
-
-.example-chip:hover {
-  background: var(--bubble-farmer);
-}
-
 .typing {
   align-items: center;
   color: var(--muted);

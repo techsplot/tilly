@@ -71,7 +71,9 @@ Working today:
 - **A WhatsApp-style chat.** One conversation fills the screen: the
   farmer's messages on the right, FarmMind's receipts, questions, and
   answers on the left, each with a time. A new conversation opens with
-  example messages to tap. A header menu opens **My records** (loaded only
+  a greeting for the time of day that names the farm and its last record
+  ("Good morning! The last thing you recorded on River Farm was weeding in
+  North Field on 15 Oct. What did you do today?"). A header menu opens **My records** (loaded only
   when opened, in plain words: "Needs a detail", "Corrected"), **Farms**
   (switch or add a farm), and **Voice settings**, each in a drawer that is
   a bottom sheet on phones and a side panel on desktop.
@@ -245,8 +247,10 @@ variable:
   answers from deterministic SQL results. This runs only when the farmer asks
   a question or requests a report.
 
-Both environment variables are optional; the app fails explicitly if either
-is missing and a question/report intent is triggered.
+Both are required. Without `NEBIUS_MODEL_EXTRACTION` (or the older
+`NEBIUS_MODEL`) no message can be read; without `NEBIUS_MODEL_ANSWER`,
+questions and reports fail. In either case FarmMind replies with an error
+naming the missing variable instead of guessing a model.
 
 ## License
 

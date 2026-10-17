@@ -253,9 +253,18 @@ async function postAgentRequestWithAutoRetry(
 const farmsResponseSchema = z.object({
   farms: z.array(z.object({ id: z.string(), name: z.string() })),
   activeFarmId: z.string(),
+  lastRecord: z
+    .object({
+      activity: z.string(),
+      crop: z.string().nullable(),
+      field: z.string().nullable(),
+      eventDate: z.string().nullable(),
+    })
+    .nullable(),
 });
 
 export type FarmSummary = { id: string; name: string };
+export type LastRecord = z.infer<typeof farmsResponseSchema>["lastRecord"];
 
 export function useFarmAgent() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
@@ -271,6 +280,7 @@ export function useFarmAgent() {
     undefined,
   );
   const [farmError, setFarmError] = useState<string | null>(null);
+  const [lastRecord, setLastRecord] = useState<LastRecord>(null);
   const [history, setHistory] = useState<SavedFarmEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
@@ -291,6 +301,7 @@ export function useFarmAgent() {
       const parsed = farmsResponseSchema.safeParse(await response.json());
       if (!parsed.success) throw new Error("Farms returned invalid data.");
       setFarms(parsed.data.farms);
+      setLastRecord(parsed.data.lastRecord);
       setActiveFarmId(parsed.data.activeFarmId);
       setFarmError(null);
       return true;
@@ -588,6 +599,7 @@ export function useFarmAgent() {
       });
       if (!response.ok) throw new Error(await readErrorMessage(response));
       setActiveFarmId(farmId);
+      setLastRecord(null);
       setFeed([]);
       setPending(undefined);
       setLastQuestionText(undefined);
@@ -595,9 +607,9 @@ export function useFarmAgent() {
       setError(null);
       setHistory([]);
       nudgeOfferedRef.current = false;
-      await refreshHistoryIfOpen();
+      await Promise.all([loadFarms(), refreshHistoryIfOpen()]);
     },
-    [refreshHistoryIfOpen],
+    [loadFarms, refreshHistoryIfOpen],
   );
 
   const addFarm = useCallback(
@@ -626,6 +638,7 @@ export function useFarmAgent() {
     farms,
     activeFarmId,
     activeFarmName,
+    lastRecord,
     farmError,
     history,
     historyLoading,
