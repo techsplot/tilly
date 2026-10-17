@@ -34,7 +34,10 @@ Working today:
 - **Agent mode: save first, ask almost never.** A farmer types a message;
   `POST /api/agent` decides the intent (record, correct, delete, question, report)
   and which farm it is about with one Nemotron call (a second call happens
-  only when the message names a different farm, so its memory is used). Only the activity is required to save — crop,
+  only when the message names a different farm, so its memory is used).
+  Nemotron Nano is asked in fast mode (thinking off, about 3 s) and asked
+  again with thinking on only when its answer looks doubtful; greetings
+  and thanks are answered in code with no model call. Only the activity is required to save — crop,
   field, and a specific time are kept when said and left empty when not,
   and a missing date is assumed to be today. The record saves at once as
   `confirmed`, and the receipt names any gap ("Recorded: spraying · today
