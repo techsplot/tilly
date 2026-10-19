@@ -161,6 +161,35 @@ describe("agent route", () => {
     );
   });
 
+  it("passes the session to the agent and keeps cookies on a farm reply", async () => {
+    mockGetFarmContext.mockResolvedValue({
+      farmId: "farm-id",
+      sessionId: "session-id",
+      isNewFarm: true,
+      isNewSession: true,
+    });
+    mockHandleFarmerMessage.mockResolvedValue([
+      { type: "reply", text: 'I couldn\'t find a farm named "Hill Farm".' },
+    ]);
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "I weeded at Hill Farm",
+          currentDate: "2026-10-12",
+          recentEventIds: [],
+        }),
+      ),
+    );
+    expect(mockHandleFarmerMessage).toHaveBeenCalledWith(
+      mockDb,
+      "farm-id",
+      expect.objectContaining({ sessionId: "session-id" }),
+    );
+    expect(response.headers.get("set-cookie")).toBe(
+      "session=session-id, farm=farm-id",
+    );
+  });
+
   it("returns 504 for SDK timeouts", async () => {
     mockHandleFarmerMessage.mockImplementation(async () => {
       await Promise.resolve();
@@ -198,7 +227,32 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind is not fully configured for questions and reports. Set the answer model and try again.",
+        "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+    });
+  });
+
+  it("names the extraction model when that is the one missing", async () => {
+    mockHandleFarmerMessage.mockRejectedValue(
+      new ModelConfigurationError(
+        "NEBIUS_MODEL_EXTRACTION is required.",
+        "extraction",
+      ),
+    );
+
+    const response = await POST(
+      request(
+        JSON.stringify({
+          message: "I weeded today",
+          currentDate: "2026-10-12",
+          recentEventIds: [],
+        }),
+      ),
+    );
+
+    expect(response.status).toBe(500);
+    await expect(response.json()).resolves.toEqual({
+      error:
+        "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
     });
   });
 

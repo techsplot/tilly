@@ -6,6 +6,7 @@ import {
   inArray,
   isNull,
   lte,
+  ne,
   sql,
   count,
 } from "drizzle-orm";
@@ -72,6 +73,43 @@ export async function createFarm(
     .returning({ id: farms.id });
   if (!farm) throw new Error("Farm could not be created.");
   return farm.id;
+}
+
+export type FarmVoiceSettings = { wakeWord: string; wakeWordEnabled: boolean };
+
+// Both settings functions check ownership in the same query, so a farm id
+// from another session reads and writes nothing.
+export async function findFarmVoiceSettings(
+  db: Database,
+  farmId: string,
+  sessionId: string,
+): Promise<FarmVoiceSettings | undefined> {
+  const [settings] = await db
+    .select({
+      wakeWord: farms.wakeWord,
+      wakeWordEnabled: farms.wakeWordEnabled,
+    })
+    .from(farms)
+    .where(and(eq(farms.id, farmId), eq(farms.sessionId, sessionId)))
+    .limit(1);
+  return settings;
+}
+
+export async function updateFarmVoiceSettings(
+  db: Database,
+  farmId: string,
+  sessionId: string,
+  settings: FarmVoiceSettings,
+): Promise<FarmVoiceSettings | undefined> {
+  const [updated] = await db
+    .update(farms)
+    .set(settings)
+    .where(and(eq(farms.id, farmId), eq(farms.sessionId, sessionId)))
+    .returning({
+      wakeWord: farms.wakeWord,
+      wakeWordEnabled: farms.wakeWordEnabled,
+    });
+  return updated;
 }
 
 export async function findFarm(db: Database, farmId: string): Promise<boolean> {
@@ -411,6 +449,42 @@ export async function listFarmEvents(
       desc(farmEvents.createdAt),
     )
     .limit(200);
+}
+
+export type LatestRecord = {
+  activity: FarmEventRow["activity"];
+  crop: string | null;
+  field: string | null;
+  eventDate: string | null;
+};
+
+// The record a greeting can mention: the most recent by event date that
+// the farmer has not deleted or rejected.
+export async function findLatestRecord(
+  db: Database,
+  farmId: string,
+): Promise<LatestRecord | null> {
+  const [row] = await db
+    .select({
+      activity: farmEvents.activity,
+      crop: farmEvents.crop,
+      field: farmEvents.fieldName,
+      eventDate: farmEvents.eventDate,
+    })
+    .from(farmEvents)
+    .where(
+      and(
+        eq(farmEvents.farmId, farmId),
+        isNull(farmEvents.deletedAt),
+        ne(farmEvents.status, "rejected"),
+      ),
+    )
+    .orderBy(
+      sql`${farmEvents.eventDate} DESC NULLS LAST`,
+      desc(farmEvents.createdAt),
+    )
+    .limit(1);
+  return row ?? null;
 }
 
 export async function loadMemoryFields(

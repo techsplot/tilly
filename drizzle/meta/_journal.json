@@ -36,6 +36,13 @@
       "when": 1791989935799,
       "tag": "0004_skinny_screwball",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1792162555669,
+      "tag": "0005_quick_sleepwalker",
+      "breakpoints": true
     }
   ]
 }

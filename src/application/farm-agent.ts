@@ -10,6 +10,9 @@ import {
 import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
+import { resolveFarmReference } from "./farm-resolver";
+import { classifySmallTalk, type SmallTalk } from "../domain/small-talk";
+import { namesAnotherActivity } from "../domain/activity-words";
 import {
   changedFields,
   correctRecordedEvent,
@@ -26,6 +29,7 @@ import {
 import {
   findFirstOwnedActiveEvent,
   findNudgeCandidate,
+  listFarmsBySession,
   markNudged,
   stopNudges,
   toFarmEvent,
@@ -102,12 +106,27 @@ export type HandleFarmerMessageInput = {
   currentDate: string;
   pending?: Pending | undefined;
   recentEventIds: string[];
+  // Lets a new message name another farm owned by the same session.
+  // Without it, every message goes to the active farm.
+  sessionId?: string | undefined;
 };
 
 const NOTHING_TO_TARGET_REPLY =
   "I don't have a recent record to change. Tell me what you did.";
 const UNSUPPORTED_REPLY =
-  "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.";
+  "I can't help with that. I keep your farm records: tell me what you did, ask what you've done, or ask for a report.";
+const REMINDER_REPLY =
+  "I can't set reminders yet. For now, tell me what you did, ask what you've done, or ask for a report.";
+const SMALL_TALK_REPLIES: Record<SmallTalk, string> = {
+  greeting:
+    "Hello! Tell me what you did on the farm today, or ask me about your records.",
+  thanks: "You're welcome.",
+  farewell: "Goodbye! Your records are saved.",
+};
+
+function unsupportedReply(message: string): string {
+  return /\bremind/i.test(message) ? REMINDER_REPLY : UNSUPPORTED_REPLY;
+}
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity, ask a question, or request a report.";
 const STOP_NUDGE_REPLY = "OK, I won't ask about that again.";
@@ -142,15 +161,38 @@ const detailLabel: Record<string, string> = {
   field: "which field",
 };
 
+// How a question shows it is asking about each detail.
+const detailMention: Record<string, RegExp> = {
+  eventDate: /\b(when|today|yesterday|date|day)\b/i,
+  crop: /\bcrops?\b/i,
+  field: /\b(fields?|where)\b/i,
+};
+
+// The model's sentence is used only if it is a question about exactly the
+// missing details: live testing produced "Anything else you'd like to
+// record?" for a missing crop, and "Which field was it?" when the field had
+// been given.
+function asksForExactly(question: string, missingDetails: string[]): boolean {
+  if (!question.includes("?")) return false;
+  const asksMissing = missingDetails.every(
+    (detail) => detailMention[detail]?.test(question) ?? false,
+  );
+  const asksKnown = (["crop", "field"] as const).some(
+    (detail) =>
+      !missingDetails.includes(detail) && detailMention[detail]!.test(question),
+  );
+  return asksMissing && !asksKnown;
+}
+
 // Finding 9: the application decides when a question is needed and which
 // details to ask about; Nemotron only phrases it. If the model's sentence
-// is missing or empty, fall back to a fixed, deterministic question.
+// does not ask for exactly those details, fall back to a fixed question.
 export function buildFollowUpQuestion(
   followUpQuestion: string | null | undefined,
   missingDetails: string[],
 ): string {
   const trimmed = followUpQuestion?.trim();
-  if (trimmed) return trimmed;
+  if (trimmed && asksForExactly(trimmed, missingDetails)) return trimmed;
   const phrases = missingDetails.map(
     (detail) => detailLabel[detail] ?? `which ${detail}`,
   );
@@ -549,7 +591,7 @@ async function routeInteraction(
     ];
   }
   if (interaction.intent === "other")
-    return [{ type: "reply", text: UNSUPPORTED_REPLY }];
+    return [{ type: "reply", text: unsupportedReply(message) }];
   return applyRecordFlow(
     db,
     farmId,
@@ -642,6 +684,20 @@ async function handlePendingClarification(
     ];
   if (interaction.intent === "delete")
     return [ended, ...(await applyDelete(db, farmId, extendedRecentIds))];
+  // A question asked instead of an answer ("when did I last spray?") is
+  // answered after the note's receipt; it used to be dropped.
+  if (interaction.intent === "question" || interaction.intent === "report")
+    return [
+      ended,
+      ...(await routeInteraction(
+        db,
+        farmId,
+        message,
+        currentDate,
+        interaction,
+        extendedRecentIds,
+      )),
+    ];
   // A reply with no activity ("I don't know", "skip") just ends the note;
   // it is not an unsupported request.
   if (interaction.intent === "other" || interaction.events.length === 0)
@@ -699,6 +755,12 @@ async function handleGapAnswer(
   }
   const targetEvent = toFarmEvent(target);
   const question = buildNudgeQuestion(targetEvent);
+  // A reply naming a different activity is a new note, not the answer:
+  // live testing saw "I planted maize..." applied as the crop of a weeding
+  // record, so code decides this before the model is asked.
+  if (namesAnotherActivity(message, targetEvent.activity, question)) {
+    return handleNewMessage(db, farmId, message, currentDate, recentEventIds);
+  }
   const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
   const interaction = await extractFarmEvent(
     question,
@@ -730,20 +792,88 @@ async function handleGapAnswer(
   return [await correctTarget(db, farmId, target, changes, currentDate)];
 }
 
+// The model sometimes puts a field into farmReference ("I weeded the north
+// field" → farm "north field"). A name that matches a field in this note or
+// in the farm's memory is a field, not a farm.
+function isFieldName(
+  reference: string,
+  events: Array<{ field: string | null }>,
+  memory: FarmMemory,
+): boolean {
+  const name = reference.trim().toLowerCase();
+  return (
+    events.some((event) => event.field?.trim().toLowerCase() === name) ||
+    memory.fields.some((field) => field.name.trim().toLowerCase() === name)
+  );
+}
+
+async function farmListReply(
+  db: Database,
+  sessionId: string,
+  lead: string,
+): Promise<AgentAction[]> {
+  const farms = await listFarmsBySession(db, sessionId);
+  const farmNames = farms.map((farm) => farm.name).join(", ");
+  return [{ type: "reply", text: `${lead} Your farms: ${farmNames}` }];
+}
+
 async function handleNewMessage(
   db: Database,
-  farmId: string,
+  activeFarmId: string,
   message: string,
   currentDate: string,
   recentEventIds: string[],
+  sessionId?: string,
 ): Promise<AgentAction[]> {
+  let farmId = activeFarmId;
   const memory = await loadFarmMemoryQuietly(db, farmId, currentDate);
-  const interaction = await extractFarmEvent(
+  let interaction = await extractFarmEvent(
     message,
     currentDate,
     undefined,
     memory,
   );
+
+  // One extraction answers both "what happened" and "which farm". Only a
+  // message naming a different farm is extracted again, because the first
+  // pass resolved fields and "same as before" against the wrong farm.
+  if (
+    sessionId &&
+    interaction.farmReference &&
+    !isFieldName(interaction.farmReference, interaction.events, memory)
+  ) {
+    const resolution = await resolveFarmReference(
+      db,
+      sessionId,
+      interaction.farmReference,
+      farmId,
+    );
+    if (resolution?.status === "ambiguous") {
+      return farmListReply(
+        db,
+        sessionId,
+        "I found multiple farms with that name. Which one did you mean?",
+      );
+    }
+    if (resolution?.status === "not_found") {
+      return farmListReply(
+        db,
+        sessionId,
+        `I couldn't find a farm named "${resolution.reference}".`,
+      );
+    }
+    if (resolution?.status === "resolved" && resolution.farmId !== farmId) {
+      farmId = resolution.farmId;
+      const farmMemory = await loadFarmMemoryQuietly(db, farmId, currentDate);
+      interaction = await extractFarmEvent(
+        message,
+        currentDate,
+        undefined,
+        farmMemory,
+      );
+    }
+  }
+
   return routeInteraction(
     db,
     farmId,
@@ -791,12 +921,19 @@ export async function handleFarmerMessage(
     );
   }
 
+  // A bare greeting or thanks needs no model call. Only checked with
+  // nothing pending: a reply to a question must still end and save it.
+  const smallTalk = classifySmallTalk(input.message);
+  if (smallTalk)
+    return [{ type: "reply", text: SMALL_TALK_REPLIES[smallTalk] }];
+
   return handleNewMessage(
     db,
     farmId,
     input.message,
     input.currentDate,
     recentEventIds,
+    input.sessionId,
   );
 }
 

@@ -1,28 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import type {
+  AgentAction,
   FeedItem,
   SavedFarmEvent,
   UndoableAgentAction,
 } from "@/app/hooks/useFarmAgent";
-import type { CitedRecord } from "@/src/application/farm-question";
-
-function formatDate(isoDate: string | null): string {
-  if (!isoDate) return "no date";
-  const parts = isoDate.split("-").map(Number);
-  const [year, month, day] = parts;
-  if (!year || !month || !day) return isoDate;
-  const date = new Date(Date.UTC(year, month - 1, day));
-  return date.toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "short",
-    timeZone: "UTC",
-  });
-}
+import { formatClock, formatDate } from "@/app/lib/format";
 
 function formatFieldLabel(field: string): string {
-  if (field === "eventDate") return "event date";
+  if (field === "eventDate") return "date";
   if (field === "eventTime") return "time";
   if (field === "timeOfDay") return "time of day";
   return field;
@@ -33,13 +21,12 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-function dateLabel(event: SavedFarmEvent): string {
-  if (!event.eventDate) return "no date";
-  return event.dateAssumed ? "today" : formatDate(event.eventDate);
-}
-
 function dateTimeLabel(event: SavedFarmEvent): string {
-  const date = dateLabel(event);
+  const date = !event.eventDate
+    ? "no date"
+    : event.dateAssumed
+      ? "today"
+      : formatDate(event.eventDate);
   if (event.eventTime) return `${date} ${event.eventTime.slice(0, 5)}`;
   if (event.timeOfDay) return `${date}, ${event.timeOfDay}`;
   return date;
@@ -55,202 +42,196 @@ function gapNote(missingFields: string[]): string {
   return ` (${labels.join(", ")} not given)`;
 }
 
-function recordedSummary(event: SavedFarmEvent): string {
-  const segments: string[] = [event.activity];
-  if (event.field) segments.push(event.field);
-  segments.push(dateTimeLabel(event));
-  return `Recorded: ${segments.join(" · ")}${gapNote(event.missingFields)}`;
+function undoableSummary(action: UndoableAgentAction): string {
+  if (action.type === "recorded") {
+    if (action.possibleDuplicate) return "Looks like a repeat.";
+    const segments: string[] = [action.event.activity];
+    if (action.event.field) segments.push(action.event.field);
+    segments.push(dateTimeLabel(action.event));
+    return `Recorded: ${segments.join(" · ")}${gapNote(action.event.missingFields)}`;
+  }
+  if (action.type === "corrected") {
+    const changes = action.changes
+      .map(
+        (change) =>
+          `${formatFieldLabel(change.field)} ${formatValue(change.before)} → ${formatValue(change.after)}`,
+      )
+      .join(", ");
+    return `Corrected: ${action.event.activity} · ${changes}`;
+  }
+  return `Deleted: ${action.event.activity} · ${action.event.field ?? "no field"} · ${formatDate(action.event.eventDate)}`;
 }
 
-function correctedSummary(
-  action: Extract<UndoableAgentAction, { type: "corrected" }>,
+function citedRecordLabel(
+  record: Extract<AgentAction, { type: "answer" }>["citedRecords"][number],
 ): string {
-  const changeText = action.changes
-    .map(
-      (change) =>
-        `${formatFieldLabel(change.field)} ${formatValue(change.before)} → ${formatValue(change.after)}`,
-    )
-    .join(", ");
-  return `Corrected: ${action.event.activity} · ${changeText}`;
-}
-
-function deletedSummary(event: SavedFarmEvent): string {
-  return `Deleted: ${event.activity} · ${event.field ?? "no field"} · ${formatDate(event.eventDate)}`;
-}
-
-function formatCitedRecord(record: {
-  activity: string;
-  crop: string | null;
-  field: string | null;
-  eventDate: string | null;
-  eventTime: string | null;
-  timeOfDay: string | null;
-}): string {
   const parts = [record.activity];
   if (record.crop) parts.push(record.crop);
   if (record.field) parts.push(record.field);
-  if (record.eventDate) parts.push(`on ${formatDate(record.eventDate)}`);
-  if (record.eventTime) parts.push(`at ${record.eventTime}`);
+  if (record.eventDate) parts.push(formatDate(record.eventDate));
+  if (record.eventTime) parts.push(record.eventTime.slice(0, 5));
   else if (record.timeOfDay) parts.push(record.timeOfDay);
   return parts.join(" · ");
 }
 
-function AnswerCard({
-  action,
+function Bubble({
+  from,
+  tone,
+  at,
+  footer,
+  role,
+  children,
 }: {
-  action: Extract<FeedItem, { kind: "action"; type: "answer" }>["action"];
+  from: "farmer" | "agent";
+  tone?: "question" | "error" | "muted" | undefined;
+  at?: number;
+  footer?: ReactNode;
+  role?: "alert" | "status";
+  children: ReactNode;
 }) {
-  const answeredAction = action as {
-    text: string;
-    citedRecords: CitedRecord[];
-  };
   return (
-    <article className="feed-card feed-answer">
-      <span className="feed-icon">💬</span>
-      <div>
-        <p>{answeredAction.text}</p>
-        {answeredAction.citedRecords.length > 0 && (
-          <div className="cited-records">
-            <p className="cited-label">Based on:</p>
-            <ul>
-              {answeredAction.citedRecords.map((record) => (
-                <li key={record.id}>{formatCitedRecord(record)}</li>
-              ))}
-            </ul>
+    <div className={`bubble-row bubble-row-${from}`}>
+      <article
+        className={`bubble bubble-${from}${tone ? ` bubble-${tone}` : ""}`}
+        role={role}
+      >
+        {children}
+        {(footer || at !== undefined) && (
+          <div className="bubble-footer">
+            {footer}
+            {at !== undefined && (
+              <time
+                className="bubble-time"
+                dateTime={new Date(at).toISOString()}
+              >
+                {formatClock(at)}
+              </time>
+            )}
           </div>
         )}
-      </div>
-    </article>
+      </article>
+    </div>
   );
 }
 
-function ActionCard({
+function Suggestions({
+  items,
+}: {
+  items: Array<{ text: string; confidence: string }> | undefined;
+}) {
+  if (!items || items.length === 0) return null;
+  return (
+    <ul className="suggestions">
+      {items.map((suggestion, index) => (
+        <li
+          key={index}
+          className={`suggestion suggestion-${suggestion.confidence}`}
+        >
+          {suggestion.text}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function ActionBubble({
   item,
   onUndo,
 }: {
   item: Extract<FeedItem, { kind: "action" }>;
   onUndo: (itemId: string, action: UndoableAgentAction) => void;
 }) {
-  const action = item.action;
+  const { action } = item;
 
   if (action.type === "question") {
     return (
-      <article className="feed-card feed-question">
-        <span className="feed-icon">?</span>
+      <Bubble from="agent" tone="question" at={item.at}>
         <p>{action.text}</p>
-      </article>
+      </Bubble>
     );
   }
-
   if (action.type === "reply") {
     return (
-      <article className="feed-card feed-reply">
+      <Bubble from="agent" at={item.at}>
         <p>{action.text}</p>
-      </article>
+      </Bubble>
     );
   }
-
   if (action.type === "answer") {
     return (
-      <AnswerCard
-        action={
-          action as Extract<
-            FeedItem,
-            { kind: "action"; type: "answer" }
-          >["action"]
-        }
-      />
-    );
-  }
-
-  if (action.type === "briefing") {
-    return (
-      <article className="feed-card feed-briefing">
-        <span className="feed-icon">📋</span>
-        <div>
-          <p>{action.text}</p>
-          {action.suggestions.length > 0 && (
-            <div className="suggestions">
-              {action.suggestions.map((suggestion, index) => (
-                <p
-                  key={index}
-                  className={`suggestion suggestion-${suggestion.confidence}`}
-                >
-                  💡 {suggestion.text}
-                </p>
+      <Bubble from="agent" at={item.at}>
+        <p>{action.text}</p>
+        {action.citedRecords.length > 0 && (
+          <div className="cited-records">
+            <p className="cited-label">Based on</p>
+            <ul>
+              {action.citedRecords.map((record) => (
+                <li key={record.id}>{citedRecordLabel(record)}</li>
               ))}
-            </div>
-          )}
-        </div>
-      </article>
-    );
-  }
-
-  // At this point, action must be undoable (recorded, corrected, or deleted)
-  const isDuplicate =
-    action.type === "recorded" && action.possibleDuplicate === true;
-  const summary = isDuplicate
-    ? "Looks like a repeat."
-    : action.type === "recorded"
-      ? recordedSummary(action.event)
-      : action.type === "corrected"
-        ? correctedSummary(action)
-        : deletedSummary(action.event);
-
-  const suggestions =
-    action.type === "recorded" ? action.suggestions : undefined;
-
-  return (
-    <article className={`feed-card feed-${action.type}`}>
-      <span className="feed-icon">✓</span>
-      <div>
-        <p>{summary}</p>
-        {"event" in action &&
-          action.event.resolvedFromMemory &&
-          action.event.resolvedFromMemory.length > 0 && (
-            <div className="memory-note">
-              {action.event.resolvedFromMemory.map((resolution) => (
-                <p
-                  key={`${resolution.eventId}-${resolution.field ?? resolution.crop}`}
-                >
-                  {resolution.field
-                    ? `Field from your ${resolution.activity} record`
-                    : `Crop from your ${resolution.activity} record`}
-                  {resolution.eventDate ? ` on ${resolution.eventDate}.` : "."}
-                </p>
-              ))}
-            </div>
-          )}
-        {suggestions && suggestions.length > 0 && (
-          <div className="suggestions">
-            {suggestions.map((suggestion, index) => (
-              <p
-                key={index}
-                className={`suggestion suggestion-${suggestion.confidence}`}
-              >
-                💡 {suggestion.text}
-              </p>
-            ))}
+            </ul>
           </div>
         )}
-        {item.undone ? (
-          <span className="undo-link undone">Undone</span>
+      </Bubble>
+    );
+  }
+  if (action.type === "briefing") {
+    return (
+      <Bubble from="agent" at={item.at}>
+        <p>{action.text}</p>
+        <Suggestions items={action.suggestions} />
+      </Bubble>
+    );
+  }
+
+  const memory = action.event.resolvedFromMemory ?? [];
+  return (
+    <Bubble
+      from="agent"
+      tone={item.undone ? "muted" : undefined}
+      at={item.at}
+      footer={
+        item.undone ? (
+          <span className="bubble-action bubble-action-done">Undone</span>
         ) : (
           <button
             type="button"
-            className="undo-link"
-            onClick={() => onUndo(item.id, action as UndoableAgentAction)}
+            className="bubble-action"
+            onClick={() => onUndo(item.id, action)}
             disabled={item.undoing}
           >
             {item.undoing ? "Undoing…" : "Undo"}
           </button>
-        )}
-      </div>
-    </article>
+        )
+      }
+    >
+      <p>
+        <span className="receipt-mark" aria-hidden="true">
+          ✓{" "}
+        </span>
+        {undoableSummary(action)}
+      </p>
+      {memory.length > 0 && (
+        <div className="memory-note">
+          {memory.map((resolution) => (
+            <p
+              key={`${resolution.eventId}-${resolution.field ?? resolution.crop}`}
+            >
+              {resolution.field
+                ? `Field from your ${resolution.activity} record`
+                : `Crop from your ${resolution.activity} record`}
+              {resolution.eventDate
+                ? ` on ${formatDate(resolution.eventDate)}.`
+                : "."}
+            </p>
+          ))}
+        </div>
+      )}
+      {action.type === "recorded" && <Suggestions items={action.suggestions} />}
+    </Bubble>
   );
 }
 
-function FailedCard({
+function FailedBubble({
   item,
   now,
   onRetry,
@@ -265,19 +246,21 @@ function FailedCard({
     !item.retryable || item.retrying || waitSeconds > 0 || retryLimitReached;
 
   return (
-    <article className="feed-card feed-error" role="alert">
-      <span className="feed-icon">!</span>
-      <div>
-        <p>{item.error}</p>
-        {item.retryable ? (
+    <Bubble
+      from="agent"
+      tone="error"
+      role="alert"
+      at={item.at}
+      footer={
+        item.retryable ? (
           <button
             type="button"
-            className="retry-link"
+            className="bubble-action"
             onClick={() => onRetry(item.id)}
             disabled={retryDisabled}
           >
             {item.retrying
-              ? "Retrying..."
+              ? "Retrying…"
               : retryLimitReached
                 ? "Retry limit reached"
                 : waitSeconds > 0
@@ -285,12 +268,14 @@ function FailedCard({
                   : "Retry"}
           </button>
         ) : (
-          <span className="retry-link retry-unavailable">
+          <span className="bubble-action bubble-action-done">
             Retry unavailable
           </span>
-        )}
-      </div>
-    </article>
+        )
+      }
+    >
+      <p>{item.error}</p>
+    </Bubble>
   );
 }
 
@@ -301,6 +286,7 @@ export default function AgentFeed({
   error,
   onUndo,
   onRetry,
+  greeting,
 }: {
   items: FeedItem[];
   isLoading: boolean;
@@ -308,6 +294,8 @@ export default function AgentFeed({
   error: string | null;
   onUndo: (itemId: string, action: UndoableAgentAction) => void;
   onRetry: (itemId: string) => void;
+  // Shown while the conversation is empty; null until the farm has loaded.
+  greeting: string | null;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -318,38 +306,41 @@ export default function AgentFeed({
   }, [items]);
 
   return (
-    <div className="agent-feed" aria-live="polite">
-      {items.length === 0 && !isLoading && (
-        <p className="hint feed-empty">
-          Tell FarmMind what happened on the farm, in your own words.
-        </p>
+    <div className="feed" aria-live="polite">
+      {items.length === 0 && !isLoading && greeting && (
+        <Bubble from="agent">
+          <p>{greeting}</p>
+        </Bubble>
       )}
       {items.map((item) =>
         item.kind === "farmer" ? (
-          <article key={item.id} className="feed-card feed-farmer">
+          <Bubble key={item.id} from="farmer" at={item.at}>
             <p>{item.text}</p>
-          </article>
+          </Bubble>
         ) : item.kind === "failed" ? (
-          <FailedCard key={item.id} item={item} now={now} onRetry={onRetry} />
+          <FailedBubble key={item.id} item={item} now={now} onRetry={onRetry} />
         ) : (
-          <ActionCard key={item.id} item={item} onUndo={onUndo} />
+          <ActionBubble key={item.id} item={item} onUndo={onUndo} />
         ),
       )}
       {isLoading && (
-        <article className="feed-card feed-working" role="status">
-          <span className="feed-icon">⏳</span>
-          <p>
+        <Bubble from="agent" role="status">
+          <p className="typing">
+            <span className="typing-dots" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+            </span>
             {elapsedSeconds > 8
-              ? `Still working (${elapsedSeconds}s)...`
-              : "FarmMind is thinking..."}
+              ? `Still working (${elapsedSeconds}s)…`
+              : "FarmMind is thinking…"}
           </p>
-        </article>
+        </Bubble>
       )}
       {error && (
-        <article className="feed-card feed-error" role="alert">
-          <span className="feed-icon">!</span>
+        <Bubble from="agent" tone="error" role="alert">
           <p>{error}</p>
-        </article>
+        </Bubble>
       )}
     </div>
   );

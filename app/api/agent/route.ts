@@ -11,10 +11,6 @@ import {
 } from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
 import { agentErrorResponse } from "./errors";
-import { resolveFarmReference } from "@/src/application/farm-resolver";
-import { extractFarmEvent } from "@/src/application/extract-farm-event";
-import { loadFarmMemory } from "@/src/application/farm-memory";
-import { listFarmsBySession } from "@/src/infrastructure/db/farm-event-repository";
 
 const clarificationsSchema = z
   .array(
@@ -112,66 +108,10 @@ export async function POST(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const context = await getFarmContext(db, request);
-
-    // Farm resolution: if not handling a pending clarification/gap/correction,
-    // check if the message mentions a specific farm
-    let targetFarmId = context.farmId;
-    if (!parsed.data.pending) {
-      // Quick extraction to check for farm reference
-      try {
-        const memory = await loadFarmMemory(
-          db,
-          context.farmId,
-          parsed.data.currentDate,
-        );
-        const extraction = await extractFarmEvent(
-          parsed.data.message,
-          parsed.data.currentDate,
-          undefined,
-          memory,
-        );
-
-        if (extraction.farmReference) {
-          const resolution = await resolveFarmReference(
-            db,
-            context.sessionId,
-            extraction.farmReference,
-            context.farmId,
-          );
-
-          if (resolution?.status === "resolved") {
-            targetFarmId = resolution.farmId;
-          } else if (resolution?.status === "ambiguous") {
-            const farms = await listFarmsBySession(db, context.sessionId);
-            const farmNames = farms.map((f) => f.name).join(", ");
-            return Response.json({
-              actions: [
-                {
-                  type: "reply",
-                  text: `I found multiple farms with that name. Which one did you mean? Your farms: ${farmNames}`,
-                },
-              ],
-            });
-          } else if (resolution?.status === "not_found") {
-            const farms = await listFarmsBySession(db, context.sessionId);
-            const farmNames = farms.map((f) => f.name).join(", ");
-            return Response.json({
-              actions: [
-                {
-                  type: "reply",
-                  text: `I couldn't find a farm named "${resolution.reference}". Your farms: ${farmNames}`,
-                },
-              ],
-            });
-          }
-        }
-      } catch (error) {
-        // If extraction fails, continue with default farm
-        console.error("Farm reference extraction failed", error);
-      }
-    }
-
-    const actions = await handleFarmerMessage(db, targetFarmId, parsed.data);
+    const actions = await handleFarmerMessage(db, context.farmId, {
+      ...parsed.data,
+      sessionId: context.sessionId,
+    });
     const response = Response.json({ actions });
     const cookies: string[] = [];
     if (context.isNewSession)

@@ -24,7 +24,9 @@ export function agentErrorResponse(error: unknown): Response {
     return Response.json(
       {
         error:
-          "FarmMind is not fully configured for questions and reports. Set the answer model and try again.",
+          error.role === "extraction"
+            ? "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION)."
+            : "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
       },
       { status: 500 },
     );

@@ -15,6 +15,9 @@ import {
   verifyMemoryReferences,
   type FarmMemory,
 } from "../domain/farm-memory";
+import { mentionedActivities } from "../domain/activity-words";
+import { looksLikeQuestion } from "../domain/question-shape";
+import { resolveWeekdayDate } from "../domain/weekday-date";
 import {
   createNebiusClient,
   getNebiusModel,
@@ -188,6 +191,45 @@ function applyInteractionPolicy(
   };
 }
 
+// A reply that could not be used; worth asking again, unlike a timeout or
+// a configuration error.
+class InvalidModelReplyError extends Error {}
+
+// In an evaluation of 14 typical messages (2026-10-17), the fast mode got
+// 11 right; all three misses were "question" for something else ("I
+// sprayed", a weather question, a reminder request). An answer is checked
+// again when it is "question" or "report" but the message is not worded as
+// one, or "other", which drops the message.
+function needsCarefulRead(
+  intent: FarmInteraction["intent"],
+  farmerMessage: string,
+  clarifications: { question: string; answer: string }[] | undefined,
+): boolean {
+  if (clarifications && clarifications.length > 0) return false;
+  if (intent === "other") return true;
+  return (
+    (intent === "question" || intent === "report") &&
+    !looksLikeQuestion(farmerMessage)
+  );
+}
+
+// A reply to FarmMind's question that is itself a question, or names an
+// activity the original note did not, needs the careful read from the
+// start. Live testing showed the fast mode storing "I sprayed" as the crop
+// of a pending weeding note and swallowing "when did I last spray?".
+function isDoubtfulAnswer(
+  farmerMessage: string,
+  clarifications: { question: string; answer: string }[] | undefined,
+): boolean {
+  const answer = clarifications?.at(-1)?.answer;
+  if (!answer) return false;
+  if (looksLikeQuestion(answer)) return true;
+  const original = mentionedActivities(farmerMessage);
+  return [...mentionedActivities(answer)].some(
+    (activity) => !original.has(activity),
+  );
+}
+
 export async function extractFarmEvent(
   farmerMessage: string,
   currentDate: string,
@@ -216,37 +258,79 @@ export async function extractFarmEvent(
   if (farmMemory.fields.length > 0 || farmMemory.recentEvents.length > 0)
     userContent.farmMemory = farmMemory;
 
-  const response = await client.chat.completions.create({
-    model: getNebiusModel("extraction"),
-    temperature: 0,
-    response_format: { type: "json_object" },
-    messages: [
-      { role: "system", content: extractionInstructions },
-      {
-        role: "user",
-        content: JSON.stringify(userContent),
-      },
-    ],
-  });
+  const model = getNebiusModel("extraction");
+  async function requestInteraction(thinking: boolean) {
+    const response = await client.chat.completions.create({
+      model,
+      temperature: 0,
+      response_format: { type: "json_object" },
+      messages: [
+        { role: "system", content: extractionInstructions },
+        {
+          role: "user",
+          content: JSON.stringify(userContent),
+        },
+      ],
+      // Nemotron Nano reasons before answering unless told not to. Not an
+      // OpenAI parameter, so the SDK passes it through to Token Factory.
+      ...(thinking ? {} : { chat_template_kwargs: { enable_thinking: false } }),
+    });
 
-  const content = response.choices[0]?.message.content;
-  if (!content) {
-    throw new Error("Nebius returned an empty model response.");
+    const content = response.choices[0]?.message.content;
+    if (!content) {
+      throw new InvalidModelReplyError(
+        "Nebius returned an empty model response.",
+      );
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      throw new InvalidModelReplyError("Nebius returned invalid JSON.", {
+        cause: error,
+      });
+    }
+
+    const validated = farmInteractionSchema.safeParse(parsed);
+    if (!validated.success) {
+      throw new InvalidModelReplyError(
+        `Model response failed FarmInteraction validation: ${validated.error.message}`,
+      );
+    }
+    return validated.data;
   }
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(content);
-  } catch (error) {
-    throw new Error("Nebius returned invalid JSON.", { cause: error });
+  // Fast first: with thinking off, Nano answers in about 2 s instead of
+  // about 20 s, and gets most messages right. It is asked again with
+  // thinking on only when its reply is unusable or its intent is doubtful.
+  let interaction: FarmInteraction;
+  if (isDoubtfulAnswer(farmerMessage, clarifications)) {
+    interaction = await requestInteraction(true);
+  } else {
+    try {
+      interaction = await requestInteraction(false);
+    } catch (error) {
+      if (!(error instanceof InvalidModelReplyError)) throw error;
+      interaction = await requestInteraction(true);
+    }
+    if (needsCarefulRead(interaction.intent, farmerMessage, clarifications)) {
+      interaction = await requestInteraction(true);
+    }
   }
+  const result = { data: interaction };
 
-  const result = farmInteractionSchema.safeParse(parsed);
-  if (!result.success) {
-    throw new Error(
-      `Model response failed FarmInteraction validation: ${result.error.message}`,
-    );
-  }
+  // Weekday names are resolved by code, not the model: live testing saved
+  // "I planted maize on Monday" as today. Only for a single event, so "on
+  // Monday" cannot move a second activity said to be today.
+  const farmerWords = [
+    farmerMessage,
+    ...(clarifications ?? []).map((clarification) => clarification.answer),
+  ].join(" ");
+  const weekdayDate =
+    result.data.events.length === 1
+      ? resolveWeekdayDate(farmerWords, currentDate)
+      : null;
 
   const verifiedEvents = result.data.events.map((event) => {
     const verified = verifyMemoryReferences(
@@ -267,6 +351,7 @@ export async function extractFarmEvent(
       ...event,
       ...verified.event,
       ...resolveTimeFields(event.eventTime ?? null, event.timeOfDay ?? null),
+      ...(weekdayDate ? { eventDate: weekdayDate } : {}),
       resolvedFromMemory: verified.resolvedFromMemory,
       unresolvedReferences: verified.unresolvedReferences,
     };

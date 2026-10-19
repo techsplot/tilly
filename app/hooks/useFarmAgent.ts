@@ -111,10 +111,12 @@ type AgentRequestPayload = {
   recentEventIds: string[];
 };
 
+// `at` is when the item joined the feed, shown as the bubble's time.
 export type FeedItem =
-  | { id: string; kind: "farmer"; text: string }
+  | { id: string; at: number; kind: "farmer"; text: string }
   | {
       id: string;
+      at: number;
       kind: "failed";
       text: string;
       error: string;
@@ -126,6 +128,7 @@ export type FeedItem =
     }
   | {
       id: string;
+      at: number;
       kind: "action";
       action: AgentAction;
       undone: boolean;
@@ -247,6 +250,22 @@ async function postAgentRequestWithAutoRetry(
   }
 }
 
+const farmsResponseSchema = z.object({
+  farms: z.array(z.object({ id: z.string(), name: z.string() })),
+  activeFarmId: z.string(),
+  lastRecord: z
+    .object({
+      activity: z.string(),
+      crop: z.string().nullable(),
+      field: z.string().nullable(),
+      eventDate: z.string().nullable(),
+    })
+    .nullable(),
+});
+
+export type FarmSummary = { id: string; name: string };
+export type LastRecord = z.infer<typeof farmsResponseSchema>["lastRecord"];
+
 export function useFarmAgent() {
   const [feed, setFeed] = useState<FeedItem[]>([]);
   const [pending, setPending] = useState<Pending | undefined>(undefined);
@@ -256,41 +275,79 @@ export function useFarmAgent() {
   const [recentEventIds, setRecentEventIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [farms, setFarms] = useState<FarmSummary[]>([]);
+  const [activeFarmId, setActiveFarmId] = useState<string | undefined>(
+    undefined,
+  );
+  const [farmError, setFarmError] = useState<string | null>(null);
+  const [lastRecord, setLastRecord] = useState<LastRecord>(null);
   const [history, setHistory] = useState<SavedFarmEvent[]>([]);
-  const [historyLoading, setHistoryLoading] = useState(true);
-  const [activeFarmName, setActiveFarmName] = useState<string>("My Farm");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState<string | null>(null);
+  const historyOpenRef = useRef(false);
   const nudgeOfferedRef = useRef(false);
+  const startedRef = useRef(false);
 
+  const activeFarmName =
+    farms.find((farm) => farm.id === activeFarmId)?.name ?? "My Farm";
+
+  // Farm identity loads first and on its own: a new session's first call
+  // creates its cookies, so nothing may race it, and settings must not wait
+  // for the full history.
+  const loadFarms = useCallback(async (): Promise<boolean> => {
+    try {
+      const response = await fetch("/api/farms");
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      const parsed = farmsResponseSchema.safeParse(await response.json());
+      if (!parsed.success) throw new Error("Farms returned invalid data.");
+      setFarms(parsed.data.farms);
+      setLastRecord(parsed.data.lastRecord);
+      setActiveFarmId(parsed.data.activeFarmId);
+      setFarmError(null);
+      return true;
+    } catch {
+      setFarmError(
+        "Your farm could not be loaded. Check your connection and reload the page.",
+      );
+      return false;
+    }
+  }, []);
+
+  // History is only fetched while the records drawer is open.
   const refreshHistory = useCallback(async () => {
     setHistoryLoading(true);
     try {
       const response = await fetch("/api/events");
-      if (!response.ok) throw new Error("Farm history could not be loaded.");
-      const body: unknown = await response.json();
+      if (!response.ok) throw new Error("Your records could not be loaded.");
       const parsed = z
-        .object({
-          events: z.array(savedFarmEventSchema),
-          farmName: z.string().optional(),
-        })
-        .safeParse(body);
+        .object({ events: z.array(savedFarmEventSchema) })
+        .safeParse(await response.json());
       if (!parsed.success)
-        throw new Error("Farm history returned invalid data.");
+        throw new Error("Your records returned invalid data.");
       setHistory(parsed.data.events);
-      if (parsed.data.farmName) setActiveFarmName(parsed.data.farmName);
+      setHistoryError(null);
     } catch (caughtError) {
-      setError(
+      setHistoryError(
         caughtError instanceof Error
           ? caughtError.message
-          : "Farm history could not be loaded.",
+          : "Your records could not be loaded.",
       );
     } finally {
       setHistoryLoading(false);
     }
   }, []);
 
-  useEffect(() => {
-    void refreshHistory();
+  const refreshHistoryIfOpen = useCallback(async () => {
+    if (historyOpenRef.current) await refreshHistory();
   }, [refreshHistory]);
+
+  const setHistoryOpen = useCallback(
+    (open: boolean) => {
+      historyOpenRef.current = open;
+      if (open) void refreshHistory();
+    },
+    [refreshHistory],
+  );
 
   // Finding 12: offer at most one gap reminder per session, on load and
   // after a saved record, as long as nothing is already pending.
@@ -307,7 +364,14 @@ export function useFarmAgent() {
       if (action.type !== "question") return;
       setFeed((prev) => [
         ...prev,
-        { id: newId(), kind: "action", action, undone: false, undoing: false },
+        {
+          id: newId(),
+          at: Date.now(),
+          kind: "action",
+          action,
+          undone: false,
+          undoing: false,
+        },
       ]);
       setPending(action.pending);
       setLastQuestionText(action.text);
@@ -316,18 +380,22 @@ export function useFarmAgent() {
     }
   }, [pending]);
 
-  // Only ever offered once per session on load; later calls happen
-  // explicitly after a save.
   useEffect(() => {
-    void offerNudge();
-  }, [offerNudge]);
+    if (startedRef.current) return;
+    startedRef.current = true;
+    void (async () => {
+      if (await loadFarms()) await offerNudge();
+    })();
+  }, [loadFarms, offerNudge]);
 
   const applyActions = useCallback(
     async (actions: AgentAction[]) => {
+      const at = Date.now();
       setFeed((prev) => [
         ...prev,
         ...actions.map((action) => ({
           id: newId(),
+          at,
           kind: "action" as const,
           action,
           undone: false,
@@ -341,9 +409,6 @@ export function useFarmAgent() {
       if (question?.type === "question") {
         setPending(question.pending);
         setLastQuestionText(question.text);
-      } else if (question?.type === "answer") {
-        setPending(undefined);
-        setLastQuestionText(undefined);
       } else {
         setPending(undefined);
         setLastQuestionText(undefined);
@@ -360,11 +425,11 @@ export function useFarmAgent() {
       }
 
       if (actions.some((action) => action.type !== "question")) {
-        await refreshHistory();
+        await refreshHistoryIfOpen();
         if (!question) await offerNudge();
       }
     },
-    [offerNudge, refreshHistory],
+    [offerNudge, refreshHistoryIfOpen],
   );
 
   const sendMessage = useCallback(
@@ -380,7 +445,7 @@ export function useFarmAgent() {
 
       setFeed((prev) => [
         ...prev,
-        { id: newId(), kind: "farmer", text: trimmed },
+        { id: newId(), at: Date.now(), kind: "farmer", text: trimmed },
       ]);
       setIsLoading(true);
       setError(null);
@@ -401,6 +466,7 @@ export function useFarmAgent() {
           ...prev,
           {
             id: newId(),
+            at: Date.now(),
             kind: "failed",
             text: trimmed,
             error: message,
@@ -411,12 +477,12 @@ export function useFarmAgent() {
             nextRetryAt: Date.now() + manualRetryCooldownMs,
           },
         ]);
-        await refreshHistory();
+        await refreshHistoryIfOpen();
       } finally {
         setIsLoading(false);
       }
     },
-    [applyActions, isLoading, pending, recentEventIds, refreshHistory],
+    [applyActions, isLoading, pending, recentEventIds, refreshHistoryIfOpen],
   );
 
   const retry = useCallback(
@@ -445,7 +511,6 @@ export function useFarmAgent() {
       setError(null);
 
       try {
-        await refreshHistory();
         const actions = await postAgentRequestWithAutoRetry(failed.request);
         setFeed((prev) => prev.filter((item) => item.id !== itemId));
         await applyActions(actions);
@@ -470,12 +535,12 @@ export function useFarmAgent() {
               : item,
           ),
         );
-        await refreshHistory();
+        await refreshHistoryIfOpen();
       } finally {
         setIsLoading(false);
       }
     },
-    [applyActions, feed, refreshHistory],
+    [applyActions, feed, refreshHistoryIfOpen],
   );
 
   const undo = useCallback(
@@ -504,7 +569,7 @@ export function useFarmAgent() {
         setRecentEventIds((prev) =>
           prev.filter((id) => id !== action.event.id),
         );
-        await refreshHistory();
+        await refreshHistoryIfOpen();
       } catch (caughtError) {
         setError(
           caughtError instanceof Error
@@ -520,7 +585,48 @@ export function useFarmAgent() {
         );
       }
     },
-    [refreshHistory],
+    [refreshHistoryIfOpen],
+  );
+
+  // Another farm starts a new conversation: pending questions and "that
+  // record" references belong to the farm they were asked about.
+  const switchFarm = useCallback(
+    async (farmId: string) => {
+      const response = await fetch("/api/farms/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farmId }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      setActiveFarmId(farmId);
+      setLastRecord(null);
+      setFeed([]);
+      setPending(undefined);
+      setLastQuestionText(undefined);
+      setRecentEventIds([]);
+      setError(null);
+      setHistory([]);
+      nudgeOfferedRef.current = false;
+      await Promise.all([loadFarms(), refreshHistoryIfOpen()]);
+    },
+    [loadFarms, refreshHistoryIfOpen],
+  );
+
+  const addFarm = useCallback(
+    async (name: string) => {
+      const response = await fetch("/api/farms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      const created = z
+        .object({ id: z.string(), name: z.string() })
+        .parse(await response.json());
+      setFarms((prev) => [...prev, created]);
+      await switchFarm(created.id);
+    },
+    [switchFarm],
   );
 
   return {
@@ -529,11 +635,19 @@ export function useFarmAgent() {
     lastQuestionText,
     isLoading,
     error,
+    farms,
+    activeFarmId,
+    activeFarmName,
+    lastRecord,
+    farmError,
     history,
     historyLoading,
-    activeFarmName,
+    historyError,
+    setHistoryOpen,
     sendMessage,
     retry,
     undo,
+    switchFarm,
+    addFarm,
   };
 }

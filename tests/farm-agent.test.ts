@@ -706,19 +706,163 @@ describe("farm agent service", () => {
 
   it("replies and saves nothing for an unsupported intent", async () => {
     const farmId = await createFarm(db);
-    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    // "other" is read a second time with thinking on.
+    mockCreate.mockResolvedValue(modelResponse([], { intent: "other" }));
 
     const actions = await handleFarmerMessage(db, farmId, {
-      message: "hello",
+      message: "what will the weather be tomorrow?",
       currentDate: "2026-10-12",
       recentEventIds: [],
     });
 
-    expect(actions[0]).toEqual({
-      type: "reply",
-      text: "I can record farm activities, answer questions about your farm, and give reports. Reminders are coming soon.",
-    });
+    expect(actions).toEqual([
+      {
+        type: "reply",
+        text: "I can't help with that. I keep your farm records: tell me what you did, ask what you've done, or ask for a report.",
+      },
+    ]);
     expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+
+  it("says reminders are not available yet when asked for one", async () => {
+    const farmId = await createFarm(db);
+    // "other" is read a second time with thinking on.
+    mockCreate.mockResolvedValue(modelResponse([], { intent: "other" }));
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "remind me to weed in two weeks",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions[0]).toMatchObject({
+      type: "reply",
+      text: expect.stringContaining("I can't set reminders yet"),
+    });
+  });
+
+  it("answers a greeting without calling the model", async () => {
+    const farmId = await createFarm(db);
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "Hello!",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+
+    expect(actions).toEqual([
+      {
+        type: "reply",
+        text: "Hello! Tell me what you did on the farm today, or ask me about your records.",
+      },
+    ]);
+    expect(mockCreate).not.toHaveBeenCalled();
+    expect(await listTimeline(db, farmId)).toEqual([]);
+  });
+
+  it("treats a different activity after a question as a new note, not an answer", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([completeEvent({ field: "North Field" })]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "I weeded the north field today",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    // A reply naming a new activity is read carefully (thinking on), once.
+    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate.mock.calls[1]![0]).not.toHaveProperty(
+      "chat_template_kwargs",
+    );
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "recorded",
+    ]);
+    const activities = (await listTimeline(db, farmId))
+      .map((event) => event.activity)
+      .sort();
+    expect(activities).toEqual(["spraying", "weeding"]);
+  });
+
+  it("answers a question asked while a note is pending, after saving it", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([], {
+        intent: "question",
+        filter: { activity: "harvesting" },
+      }),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "when did I last harvest?",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    expect(second).toMatchObject([
+      { type: "recorded", event: { activity: "spraying" } },
+      { type: "answer", text: "I can't tell from your records." },
+    ]);
+    expect(await listTimeline(db, farmId)).toHaveLength(1);
+  });
+
+  it("dates 'on Monday' by the calendar, not the model", async () => {
+    const farmId = await createFarm(db);
+    // 2026-10-17 is a Saturday; the model wrongly says today.
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        completeEvent({ activity: "planting", eventDate: "2026-10-17" }),
+      ]),
+    );
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I planted maize in the back field on Monday",
+      currentDate: "2026-10-17",
+      recentEventIds: [],
+    });
+    if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(actions[0].event.eventDate).toBe("2026-10-12");
+  });
+
+  it("still saves a pending note when the reply is only thanks", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(modelResponse([sprayEvent()]));
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
+    await handleFarmerMessage(db, farmId, {
+      message: "thanks",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    const timeline = await listTimeline(db, farmId);
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.activity).toBe("spraying");
   });
 
   it("propagates a model failure and saves nothing", async () => {
@@ -877,11 +1021,9 @@ describe("gap reminders (finding 12)", () => {
       eventDate: "2026-10-12",
     });
 
-    // First call: the reply read against the nudge question; second call:
-    // the same reply handled as a new note.
-    mockCreate
-      .mockResolvedValueOnce(modelResponse([weeding]))
-      .mockResolvedValueOnce(modelResponse([weeding]));
+    // The reply names another activity, so code skips reading it against
+    // the nudge question: one call, for the reply as a new note.
+    mockCreate.mockResolvedValueOnce(modelResponse([weeding]));
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "I weeded the river field today",
@@ -890,7 +1032,7 @@ describe("gap reminders (finding 12)", () => {
       recentEventIds: [],
     });
 
-    expect(mockCreate).toHaveBeenCalledTimes(2);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
     expect(actions).toHaveLength(1);
     expect(actions[0]?.type).toBe("recorded");
     if (actions[0]?.type !== "recorded") throw new Error("expected recorded");
@@ -993,6 +1135,33 @@ describe("question phrasing helpers", () => {
     expect(
       buildFollowUpQuestion("Got it, spraying. Which field was it?", ["field"]),
     ).toBe("Got it, spraying. Which field was it?");
+    expect(
+      buildFollowUpQuestion(
+        "Got it, spraying. Which field, and was it today?",
+        ["field", "eventDate"],
+      ),
+    ).toBe("Got it, spraying. Which field, and was it today?");
+  });
+
+  it("ignores model phrasing that does not ask for the missing details", () => {
+    // Seen in live testing: a missing crop answered with a vague question.
+    expect(
+      buildFollowUpQuestion(
+        "Got it, weeding the north field this morning. Anything else you'd like to record?",
+        ["crop"],
+      ),
+    ).toBe("Got it. Can you tell me which crop?");
+    // Asks about a field that was already given.
+    expect(
+      buildFollowUpQuestion(
+        "Got it, weeding. Which field was it, and what crop?",
+        ["crop"],
+      ),
+    ).toBe("Got it. Can you tell me which crop?");
+    // Not a question at all.
+    expect(buildFollowUpQuestion("Recorded the crop.", ["crop"])).toBe(
+      "Got it. Can you tell me which crop?",
+    );
   });
 
   it("builds fixed nudge wording from the record", () => {

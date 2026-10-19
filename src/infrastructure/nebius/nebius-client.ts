@@ -2,7 +2,17 @@ import OpenAI from "openai";
 
 export type ModelRole = "extraction" | "answer";
 
-export class ModelConfigurationError extends Error {}
+export class ModelConfigurationError extends Error {
+  // Which model is missing, so the error shown to the farmer names the
+  // right one.
+  role: ModelRole;
+
+  constructor(message: string, role: ModelRole = "answer") {
+    super(message);
+    this.name = "ModelConfigurationError";
+    this.role = role;
+  }
+}
 
 export function createNebiusClient(): OpenAI {
   const apiKey = process.env.NEBIUS_API_KEY;
@@ -28,6 +38,7 @@ function getModelForRole(role: ModelRole): string {
   if (!model) {
     throw new ModelConfigurationError(
       `${envVar} is required. Set it to a permitted NVIDIA model available to your Nebius account.`,
+      role,
     );
   }
 

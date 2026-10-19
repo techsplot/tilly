@@ -56,7 +56,7 @@ export async function GET(request: Request): Promise<Response> {
     const [events, farmRows] = await Promise.all([
       listTimeline(db, context.farmId),
       db
-        .select({ name: farms.name })
+        .select({ name: farms.name, id: farms.id })
         .from(farms)
         .where(eq(farms.id, context.farmId))
         .limit(1),
@@ -64,6 +64,7 @@ export async function GET(request: Request): Promise<Response> {
     const response = Response.json({
       events,
       farmName: farmRows[0]?.name ?? "My Farm",
+      farmId: farmRows[0]?.id,
     });
     return response;
   } catch (error) {

@@ -1,116 +1,201 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useFarmAgent } from "@/app/hooks/useFarmAgent";
 import AgentFeed from "@/app/components/AgentFeed";
-import MessageBar from "@/app/components/MessageBar";
+import ChatHeader, { type MenuChoice } from "@/app/components/ChatHeader";
+import Drawer from "@/app/components/Drawer";
 import FarmHistory from "@/app/components/FarmHistory";
+import FarmsPanel from "@/app/components/FarmsPanel";
+import MessageBar from "@/app/components/MessageBar";
+import WakeWordSettings, {
+  type VoiceSettings,
+} from "@/app/components/WakeWordSettings";
+import { buildGreeting } from "@/app/lib/greeting";
+import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
+
+const DRAWER_TITLES: Record<MenuChoice, string> = {
+  records: "My records",
+  farms: "Farms",
+  voice: "Voice settings",
+};
 
 export default function HomePage() {
-  const {
-    feed,
-    pending,
-    lastQuestionText,
-    isLoading,
-    error,
-    history,
-    historyLoading,
-    activeFarmName,
-    sendMessage,
-    retry,
-    undo,
-  } = useFarmAgent();
-  const [activeTab, setActiveTab] = useState<"feed" | "history">("feed");
+  const agent = useFarmAgent();
+  const { activeFarmId, isLoading, setHistoryOpen } = agent;
+  const [draft, setDraft] = useState("");
+  const [drawer, setDrawer] = useState<MenuChoice | null>(null);
+  const [voiceSettings, setVoiceSettings] = useState<VoiceSettings | null>(
+    null,
+  );
+  const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(
+    null,
+  );
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const elapsedIntervalRef = useRef<number | null>(null);
+  const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (isLoading) {
-      setElapsedSeconds(0);
-      elapsedIntervalRef.current = window.setInterval(() => {
-        setElapsedSeconds((seconds) => seconds + 1);
-      }, 1000);
-    } else if (elapsedIntervalRef.current) {
-      clearInterval(elapsedIntervalRef.current);
-      elapsedIntervalRef.current = null;
-    }
+    if (!activeFarmId) return;
+    let cancelled = false;
+    setVoiceSettings(null);
+    setVoiceSettingsError(null);
+    void (async () => {
+      try {
+        const response = await fetch(`/api/farms/${activeFarmId}/settings`);
+        if (!response.ok) throw new Error();
+        const data = (await response.json()) as VoiceSettings;
+        if (!cancelled) setVoiceSettings(data);
+      } catch {
+        if (!cancelled)
+          setVoiceSettingsError("Voice settings could not be loaded.");
+      }
+    })();
     return () => {
-      if (elapsedIntervalRef.current) clearInterval(elapsedIntervalRef.current);
+      cancelled = true;
     };
+  }, [activeFarmId]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    setElapsedSeconds(0);
+    const interval = window.setInterval(
+      () => setElapsedSeconds((seconds) => seconds + 1),
+      1000,
+    );
+    return () => window.clearInterval(interval);
   }, [isLoading]);
 
   useEffect(() => {
-    feedEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [feed, isLoading]);
+    feedEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [agent.feed, isLoading]);
 
+  const openDrawer = useCallback(
+    (choice: MenuChoice) => {
+      setDrawer(choice);
+      setHistoryOpen(choice === "records");
+    },
+    [setHistoryOpen],
+  );
+
+  const closeDrawer = useCallback(() => {
+    setDrawer(null);
+    setHistoryOpen(false);
+  }, [setHistoryOpen]);
+
+  async function saveVoiceSettings(settings: VoiceSettings) {
+    if (!activeFarmId) throw new Error("Your farm is still loading.");
+    const response = await fetch(`/api/farms/${activeFarmId}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(settings),
+    });
+    const body = (await response.json().catch(() => ({}))) as
+      VoiceSettings | { error?: string };
+    if (!response.ok) {
+      throw new Error(
+        ("error" in body && body.error) || "Voice settings could not be saved.",
+      );
+    }
+    setVoiceSettings(body as VoiceSettings);
+    closeDrawer();
+  }
+
+  const wakeWord = voiceSettings?.wakeWord ?? DEFAULT_WAKE_WORD;
   const placeholder =
-    pending && lastQuestionText
-      ? `Answer: ${lastQuestionText}`
+    agent.pending && agent.lastQuestionText
+      ? "Type your answer…"
       : "What happened on the farm today?";
 
   return (
-    <main className="shell">
-      <section className="hero">
-        <div className="brand-mark">F</div>
-        <p className="eyebrow">FIELDLEDGER · FARMMIND</p>
-        <h1>Your farm remembers.</h1>
-        <p className="farm-context">{activeFarmName}</p>
-      </section>
-
-      <nav className="tab-row" aria-label="View">
-        <button
-          type="button"
-          className={activeTab === "feed" ? "tab active" : "tab"}
-          onClick={() => setActiveTab("feed")}
-        >
-          Feed
-        </button>
-        <button
-          type="button"
-          className={activeTab === "history" ? "tab active" : "tab"}
-          onClick={() => setActiveTab("history")}
-        >
-          History
-        </button>
-      </nav>
-
-      <div className="panels">
-        <section
-          className={`feed-panel ${activeTab === "feed" ? "" : "panel-hidden-mobile"}`}
-        >
-          <AgentFeed
-            items={feed}
-            isLoading={isLoading}
-            elapsedSeconds={elapsedSeconds}
-            error={error}
-            onUndo={undo}
-            onRetry={retry}
-          />
-          <div ref={feedEndRef} />
-        </section>
-
-        <section
-          className={`history-panel ${activeTab === "history" ? "" : "panel-hidden-mobile"}`}
-        >
-          <FarmHistory history={history} loading={historyLoading} />
-        </section>
-      </div>
-
-      <MessageBar
-        disabled={isLoading}
-        placeholder={placeholder}
-        onSend={(message) => void sendMessage(message)}
+    <div className="app">
+      <ChatHeader
+        farmName={agent.activeFarmName}
+        menuButtonRef={menuButtonRef}
+        onChoose={openDrawer}
       />
 
-      <footer>
-        <span>Private by design</span>
-        <span>•</span>
-        <span>
-          Records are saved for this browser. Clearing browser data starts a new
-          farm.
-        </span>
-      </footer>
-    </main>
+      <main className="chat" aria-label="Conversation with FarmMind">
+        <div className="chat-column">
+          {agent.farmError && (
+            <p className="banner-error" role="alert">
+              {agent.farmError}
+            </p>
+          )}
+          <AgentFeed
+            items={agent.feed}
+            isLoading={isLoading}
+            elapsedSeconds={elapsedSeconds}
+            error={agent.error}
+            onUndo={agent.undo}
+            onRetry={agent.retry}
+            greeting={
+              activeFarmId
+                ? buildGreeting(agent.activeFarmName, agent.lastRecord)
+                : null
+            }
+          />
+          <div ref={feedEndRef} />
+        </div>
+      </main>
+
+      <MessageBar
+        value={draft}
+        onChange={setDraft}
+        onSend={(message) => void agent.sendMessage(message)}
+        busy={isLoading}
+        placeholder={placeholder}
+        voiceMode={voiceSettings?.wakeWordEnabled ? "wakeWord" : "direct"}
+        wakeWord={wakeWord}
+        onOpenVoiceSettings={() => openDrawer("voice")}
+      />
+
+      {drawer && (
+        <Drawer
+          title={DRAWER_TITLES[drawer]}
+          onClose={closeDrawer}
+          returnFocusRef={menuButtonRef}
+        >
+          {drawer === "records" && (
+            <FarmHistory
+              history={agent.history}
+              loading={agent.historyLoading}
+              error={agent.historyError}
+            />
+          )}
+          {drawer === "farms" && (
+            <FarmsPanel
+              farms={agent.farms}
+              activeFarmId={activeFarmId}
+              onSwitch={async (farmId) => {
+                await agent.switchFarm(farmId);
+                closeDrawer();
+              }}
+              onAdd={async (name) => {
+                await agent.addFarm(name);
+                closeDrawer();
+              }}
+            />
+          )}
+          {drawer === "voice" &&
+            (voiceSettings ? (
+              <WakeWordSettings
+                current={voiceSettings}
+                onSave={saveVoiceSettings}
+              />
+            ) : (
+              <p
+                className={voiceSettingsError ? "drawer-error" : "drawer-note"}
+                role={voiceSettingsError ? "alert" : undefined}
+              >
+                {voiceSettingsError ??
+                  (agent.farmError
+                    ? agent.farmError
+                    : "Loading voice settings…")}
+              </p>
+            ))}
+        </Drawer>
+      )}
+    </div>
   );
 }
