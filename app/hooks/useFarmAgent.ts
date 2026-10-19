@@ -172,6 +172,21 @@ class AgentRequestError extends Error {
   }
 }
 
+// Over a rate limit (429). Not a failure of the message: Tilly says it is
+// busy in an ordinary bubble, and nothing is retried automatically.
+class BusyError extends Error {}
+
+function busyReply(text: string): FeedItem {
+  return {
+    id: newId(),
+    at: Date.now(),
+    kind: "action",
+    action: { type: "reply", text },
+    undone: false,
+    undoing: false,
+  };
+}
+
 const autoRetryDelays = [1200, 3500];
 const manualRetryCooldownMs = 10000;
 const maxManualRetryAttempts = 5;
@@ -181,7 +196,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isRetryableStatus(status: number): boolean {
-  return [408, 429, 502, 503, 504].includes(status);
+  return [408, 502, 503, 504].includes(status);
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -217,6 +232,9 @@ async function postAgentRequest(
     );
   }
 
+  if (response.status === 429) {
+    throw new BusyError(await readErrorMessage(response));
+  }
   if (!response.ok) {
     throw new AgentRequestError(
       await readErrorMessage(response),
@@ -454,6 +472,11 @@ export function useFarmAgent() {
         const actions = await postAgentRequestWithAutoRetry(request);
         await applyActions(actions);
       } catch (caughtError) {
+        if (caughtError instanceof BusyError) {
+          // The pending question, if any, is kept for the next message.
+          setFeed((prev) => [...prev, busyReply(caughtError.message)]);
+          return;
+        }
         const retryable =
           caughtError instanceof AgentRequestError
             ? caughtError.retryable
@@ -515,6 +538,13 @@ export function useFarmAgent() {
         setFeed((prev) => prev.filter((item) => item.id !== itemId));
         await applyActions(actions);
       } catch (caughtError) {
+        if (caughtError instanceof BusyError) {
+          setFeed((prev) => [
+            ...prev.filter((item) => item.id !== itemId),
+            busyReply(caughtError.message),
+          ]);
+          return;
+        }
         const message =
           caughtError instanceof Error
             ? caughtError.message

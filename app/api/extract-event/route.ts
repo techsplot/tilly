@@ -4,6 +4,12 @@ import { loadFarmMemory } from "@/src/application/farm-memory";
 import { getDb } from "@/src/infrastructure/db/client";
 import type { FarmMemory } from "@/src/domain/farm-memory";
 import { APIConnectionTimeoutError } from "openai";
+import { ModelBudgetExceededError } from "@/src/infrastructure/nebius/nebius-client";
+import {
+  DAILY_CAP_REPLY,
+  limitModelRequest,
+  tooManyRequests,
+} from "../rate-limit";
 import {
   farmInteractionResultSchema,
   farmRequestSchema,
@@ -17,6 +23,8 @@ function isWithinOneDay(clientDate: string, serverDate: string): boolean {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const limited = limitModelRequest(request);
+  if (limited) return limited;
   let body: unknown;
   try {
     body = await request.json();
@@ -79,6 +87,8 @@ export async function POST(request: Request): Promise<Response> {
     }
     return Response.json(parsedResult.data);
   } catch (error: unknown) {
+    if (error instanceof ModelBudgetExceededError)
+      return tooManyRequests(error.retryAfterSeconds, DAILY_CAP_REPLY);
     const duration = Date.now() - modelStart;
     const status = error instanceof APIConnectionTimeoutError ? 504 : 502;
     console.error(

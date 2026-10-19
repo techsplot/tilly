@@ -119,6 +119,16 @@ Working today:
   `event_time`/`time_of_day`, `last_nudged_at`/`nudges_stopped`, multi-farm,
   and `wake_word`/`wake_word_enabled` columns.
 
+- **Rate limits on model calls.** `POST /api/agent` and
+  `POST /api/extract-event` allow 10 requests a minute and 100 an hour per
+  session, and 30 a minute and 300 an hour per IP; a request must pass
+  both. Across all users, Nebius calls are capped at 3,000 a day
+  (`MODEL_DAILY_LIMIT`), counted per call, so the thinking-mode retry counts
+  twice and greetings answered in code do not count. Over a limit the route
+  returns `429` with `Retry-After`, and the chat shows "Tilly is busy right
+  now" as an ordinary reply. The counts are in memory, so they are per
+  container and reset on restart; that is fine for one demo instance.
+
 Not built yet: a hosted demo (Phase 10), reminders delivered outside the app
 (Phase 11), and evaluation results (Phase 13).
 

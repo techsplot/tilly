@@ -18,6 +18,7 @@ vi.mock("../src/infrastructure/db/client", () => ({
 }));
 
 import { POST } from "../app/api/extract-event/route";
+import { resetRequestLimits } from "../app/api/rate-limit";
 
 const result = {
   events: [],
@@ -27,6 +28,7 @@ const result = {
 
 describe("extract route farm memory", () => {
   beforeEach(() => {
+    resetRequestLimits();
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
     mockExtractFarmEvent.mockReset().mockResolvedValue(result);

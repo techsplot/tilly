@@ -2,7 +2,11 @@ import { z } from "zod";
 import { APIConnectionTimeoutError } from "openai";
 import { LifecycleError, ValidationError } from "@/src/domain/farm-event";
 import { NotFoundError } from "@/src/application/errors";
-import { ModelConfigurationError } from "@/src/infrastructure/nebius/nebius-client";
+import {
+  ModelBudgetExceededError,
+  ModelConfigurationError,
+} from "@/src/infrastructure/nebius/nebius-client";
+import { DAILY_CAP_REPLY, tooManyRequests } from "../rate-limit";
 
 export function agentErrorResponse(error: unknown): Response {
   if (error instanceof z.ZodError || error instanceof ValidationError)
@@ -19,6 +23,8 @@ export function agentErrorResponse(error: unknown): Response {
     return Response.json({ error: error.message }, { status: 404 });
   if (error instanceof LifecycleError)
     return Response.json({ error: error.message }, { status: 409 });
+  if (error instanceof ModelBudgetExceededError)
+    return tooManyRequests(error.retryAfterSeconds, DAILY_CAP_REPLY);
   if (error instanceof ModelConfigurationError) {
     console.error("Tilly model configuration failed", error);
     return Response.json(

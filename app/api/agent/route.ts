@@ -10,6 +10,7 @@ import {
   farmTimeOfDaySchema,
 } from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
+import { limitModelRequest } from "../rate-limit";
 import { agentErrorResponse } from "./errors";
 
 const clarificationsSchema = z
@@ -83,6 +84,8 @@ function isWithinOneDay(clientDate: string, serverDate: string): boolean {
 }
 
 export async function POST(request: Request): Promise<Response> {
+  const limited = limitModelRequest(request);
+  if (limited) return limited;
   let body: unknown;
   try {
     body = await request.json();
