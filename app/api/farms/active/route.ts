@@ -6,6 +6,7 @@ import {
 } from "@/src/application/farm-context";
 import { getDb } from "@/src/infrastructure/db/client";
 import { findFarmByIdAndSession } from "@/src/infrastructure/db/farm-event-repository";
+import { logError } from "@/src/infrastructure/request-log";
 
 const setActiveFarmSchema = z.object({
   farmId: z.string().uuid("Farm id must be a valid UUID"),
@@ -60,7 +61,7 @@ export async function PUT(request: Request): Promise<Response> {
     response.headers.set("Set-Cookie", farmCookieHeader(farm.id));
     return response;
   } catch (error) {
-    console.error("Set active farm failed", error);
+    logError("Set active farm failed", error);
     return Response.json(
       { error: "Failed to set active farm." },
       { status: 500 },

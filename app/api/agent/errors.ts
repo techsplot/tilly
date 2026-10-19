@@ -7,6 +7,7 @@ import {
   ModelConfigurationError,
 } from "@/src/infrastructure/nebius/nebius-client";
 import { DAILY_CAP_REPLY, tooManyRequests } from "../rate-limit";
+import { logError } from "@/src/infrastructure/request-log";
 
 export function agentErrorResponse(error: unknown): Response {
   if (error instanceof z.ZodError || error instanceof ValidationError)
@@ -26,7 +27,7 @@ export function agentErrorResponse(error: unknown): Response {
   if (error instanceof ModelBudgetExceededError)
     return tooManyRequests(error.retryAfterSeconds, DAILY_CAP_REPLY);
   if (error instanceof ModelConfigurationError) {
-    console.error("Tilly model configuration failed", error);
+    logError("Tilly model configuration failed", error);
     return Response.json(
       {
         error:
@@ -42,7 +43,7 @@ export function agentErrorResponse(error: unknown): Response {
       { error: "Tilly is taking longer than expected. Please try again." },
       { status: 504 },
     );
-  console.error("Tilly agent request failed", error);
+  logError("Tilly agent request failed", error);
   return Response.json(
     { error: "Tilly could not process that message. Please try again." },
     { status: 502 },

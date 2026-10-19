@@ -242,7 +242,7 @@ export async function answerQuestion(
     };
   }
 
-  const client = createNebiusClient();
+  const client = createNebiusClient("answer");
   const recordsText = formatRecordsForModel(
     rows.map((r) => ({
       id: r.id,
@@ -300,7 +300,7 @@ export async function generateReport(
     };
   }
 
-  const client = createNebiusClient();
+  const client = createNebiusClient("answer");
   const summaryObj = {
     total: summary.total,
     byActivity: summary.byActivity,

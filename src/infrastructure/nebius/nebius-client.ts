@@ -4,6 +4,7 @@ import type {
   ChatCompletionCreateParamsNonStreaming,
 } from "openai/resources/chat/completions";
 import { DailyCap, modelDailyLimit } from "../rate-limit";
+import { noteModelCall } from "../request-log";
 
 export type ModelRole = "extraction" | "answer";
 
@@ -47,7 +48,10 @@ export type NebiusClient = {
   };
 };
 
-export function createNebiusClient(): NebiusClient {
+// `role` only labels the calls in the request log.
+export function createNebiusClient(
+  role: ModelRole = "extraction",
+): NebiusClient {
   const apiKey = process.env.NEBIUS_API_KEY;
   const baseURL =
     process.env.NEBIUS_BASE_URL ?? "https://api.tokenfactory.nebius.com/v1/";
@@ -69,6 +73,10 @@ export function createNebiusClient(): NebiusClient {
               new ModelBudgetExceededError(budget.retryAfterSeconds),
             );
           }
+          noteModelCall(
+            role,
+            params.chat_template_kwargs?.enable_thinking !== false,
+          );
           return openai.chat.completions.create(params);
         },
       },

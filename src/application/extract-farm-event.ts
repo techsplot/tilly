@@ -236,7 +236,7 @@ export async function extractFarmEvent(
   clarifications?: { question: string; answer: string }[],
   farmMemory: FarmMemory = { fields: [], recentEvents: [] },
 ): Promise<FarmInteractionResult> {
-  const client = createNebiusClient();
+  const client = createNebiusClient("extraction");
 
   // Build sourceText with provenance: original message + Q/A pairs
   let sourceText = farmerMessage;

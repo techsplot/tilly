@@ -10,6 +10,7 @@ import {
   farmTimeOfDaySchema,
 } from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
+import { withRequestLog } from "@/src/infrastructure/request-log";
 import { limitModelRequest } from "../rate-limit";
 import { agentErrorResponse } from "./errors";
 
@@ -83,7 +84,7 @@ function isWithinOneDay(clientDate: string, serverDate: string): boolean {
   return diffDays <= 1;
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function handlePost(request: Request): Promise<Response> {
   const limited = limitModelRequest(request);
   if (limited) return limited;
   let body: unknown;
@@ -126,4 +127,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error) {
     return agentErrorResponse(error);
   }
+}
+
+export function POST(request: Request): Promise<Response> {
+  return withRequestLog("/api/agent", () => handlePost(request));
 }

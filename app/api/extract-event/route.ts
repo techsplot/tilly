@@ -2,6 +2,7 @@ import { extractFarmEvent } from "@/src/application/extract-farm-event";
 import { getExistingFarmId } from "@/src/application/farm-context";
 import { loadFarmMemory } from "@/src/application/farm-memory";
 import { getDb } from "@/src/infrastructure/db/client";
+import { logError, withRequestLog } from "@/src/infrastructure/request-log";
 import type { FarmMemory } from "@/src/domain/farm-memory";
 import { APIConnectionTimeoutError } from "openai";
 import { ModelBudgetExceededError } from "@/src/infrastructure/nebius/nebius-client";
@@ -22,14 +23,14 @@ function isWithinOneDay(clientDate: string, serverDate: string): boolean {
   return diffDays <= 1;
 }
 
-export async function POST(request: Request): Promise<Response> {
+async function handlePost(request: Request): Promise<Response> {
   const limited = limitModelRequest(request);
   if (limited) return limited;
   let body: unknown;
   try {
     body = await request.json();
-  } catch (error: unknown) {
-    console.error("Invalid request JSON", error);
+  } catch {
+    // Not logged: the parse error quotes the body, which is farmer text.
     return Response.json(
       { error: "Please send a valid JSON request." },
       { status: 400 },
@@ -50,16 +51,14 @@ export async function POST(request: Request): Promise<Response> {
       { status: 400 },
     );
   }
-  const modelStart = Date.now();
   try {
     let farmMemory: FarmMemory = { fields: [], recentEvents: [] };
-    let farmId: string | undefined;
     try {
       const db = getDb();
-      farmId = await getExistingFarmId(db, request);
+      const farmId = await getExistingFarmId(db, request);
       if (farmId) farmMemory = await loadFarmMemory(db, farmId, currentDate);
     } catch (memoryError) {
-      console.error("Tilly memory load failed", memoryError);
+      logError("Tilly memory load failed", memoryError);
       farmMemory = { fields: [], recentEvents: [] };
     }
     const result = await extractFarmEvent(
@@ -68,18 +67,9 @@ export async function POST(request: Request): Promise<Response> {
       clarifications,
       farmMemory,
     );
-    console.info("Tilly memory interpretation", {
-      farmId: farmId ?? null,
-      memoryItems: farmMemory.fields.length + farmMemory.recentEvents.length,
-      memoryEventIds: result.events.flatMap(
-        (event) => event.memoryEventIds ?? [],
-      ),
-    });
     const parsedResult = farmInteractionResultSchema.safeParse(result);
-    const duration = Date.now() - modelStart;
-    console.info(`Tilly model call: ${duration}ms`);
     if (!parsedResult.success) {
-      console.error("Tilly returned invalid data", parsedResult.error);
+      logError("Tilly returned invalid data", parsedResult.error);
       return Response.json(
         { error: "Tilly could not process that message. Please try again." },
         { status: 502 },
@@ -89,12 +79,8 @@ export async function POST(request: Request): Promise<Response> {
   } catch (error: unknown) {
     if (error instanceof ModelBudgetExceededError)
       return tooManyRequests(error.retryAfterSeconds, DAILY_CAP_REPLY);
-    const duration = Date.now() - modelStart;
     const status = error instanceof APIConnectionTimeoutError ? 504 : 502;
-    console.error(
-      `Tilly model call failed (${status}) after ${duration}ms`,
-      error,
-    );
+    logError("Tilly model call failed", error);
     return Response.json(
       {
         error:
@@ -105,4 +91,8 @@ export async function POST(request: Request): Promise<Response> {
       { status },
     );
   }
+}
+
+export function POST(request: Request): Promise<Response> {
+  return withRequestLog("/api/extract-event", () => handlePost(request));
 }
