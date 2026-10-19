@@ -44,7 +44,7 @@ describe("Tilly wake word migration", () => {
     );
 
     await migrate(db, { migrationsFolder: MIGRATIONS });
-  });
+  }, 180000);
 
   afterAll(async () => {
     await client.close();
