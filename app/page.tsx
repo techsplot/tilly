@@ -12,6 +12,7 @@ import WakeWordSettings, {
   type VoiceSettings,
 } from "@/app/components/WakeWordSettings";
 import { buildGreeting } from "@/app/lib/greeting";
+import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
 
 const DRAWER_TITLES: Record<MenuChoice, string> = {
@@ -134,6 +135,13 @@ export default function HomePage() {
                 ? buildGreeting(agent.activeFarmName, agent.lastRecord)
                 : null
             }
+            onTrySample={
+              activeFarmId &&
+              !agent.lastRecord &&
+              agent.activeFarmName !== SAMPLE_FARM_NAME
+                ? agent.openSampleFarm
+                : null
+            }
           />
           <div ref={feedEndRef} />
         </div>
@@ -173,6 +181,10 @@ export default function HomePage() {
               }}
               onAdd={async (name) => {
                 await agent.addFarm(name);
+                closeDrawer();
+              }}
+              onTrySample={async () => {
+                await agent.openSampleFarm();
                 closeDrawer();
               }}
             />

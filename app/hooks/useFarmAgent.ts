@@ -620,14 +620,8 @@ export function useFarmAgent() {
 
   // Another farm starts a new conversation: pending questions and "that
   // record" references belong to the farm they were asked about.
-  const switchFarm = useCallback(
+  const startFarmConversation = useCallback(
     async (farmId: string) => {
-      const response = await fetch("/api/farms/active", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ farmId }),
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response));
       setActiveFarmId(farmId);
       setLastRecord(null);
       setFeed([]);
@@ -641,6 +635,32 @@ export function useFarmAgent() {
     },
     [loadFarms, refreshHistoryIfOpen],
   );
+
+  const switchFarm = useCallback(
+    async (farmId: string) => {
+      const response = await fetch("/api/farms/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farmId }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      await startFarmConversation(farmId);
+    },
+    [startFarmConversation],
+  );
+
+  // Creates the sample farm the first time and switches to it; the server
+  // makes it the active farm.
+  const openSampleFarm = useCallback(async () => {
+    const response = await fetch("/api/farms/sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentDate: getLocalDateString() }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response));
+    const sample = z.object({ id: z.string() }).parse(await response.json());
+    await startFarmConversation(sample.id);
+  }, [startFarmConversation]);
 
   const addFarm = useCallback(
     async (name: string) => {
@@ -679,5 +699,6 @@ export function useFarmAgent() {
     undo,
     switchFarm,
     addFarm,
+    openSampleFarm,
   };
 }
