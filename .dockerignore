@@ -1,0 +1,18 @@
+# Secrets stay out of the build context; the example file is harmless.
+.env
+.env.*
+!.env.example
+
+node_modules
+.next
+dist
+coverage
+tests
+*.log
+.git
+.github
+.vscode
+agent.md
+scripts
+Dockerfile
+.dockerignore
