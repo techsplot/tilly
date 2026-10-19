@@ -138,7 +138,7 @@ describe("undo route", () => {
     const response = await request(eventId, { action: "recorded" });
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not save that record. Please try again.",
+      error: "Tilly could not save that record. Please try again.",
     });
   });
 });

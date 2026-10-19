@@ -183,7 +183,7 @@ export class VoiceController {
     else this.options.onInterim(this.wakeInterim(interim.trim()));
   }
 
-  // Only speech meant for FarmMind is shown in the input.
+  // Only speech meant for Tilly is shown in the input.
   private wakeInterim(interim: string): string {
     if (!interim) return "";
     if (this.armed) return interim;

@@ -1,10 +1,10 @@
-# FieldLedger
+# Tilly
 
-FieldLedger is the project for FarmMind: a farm memory assistant that turns
-everyday farm activity descriptions into confirmed, searchable farm records
-and grounded follow-up actions.
+Tilly is a farm memory you keep by talking. Tell Tilly what you did on the
+farm, in your own words, and it turns that into confirmed, searchable farm
+records and grounded follow-up actions.
 
-FieldLedger is being built for the
+Tilly is being built for the
 [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/)
 in the **Best Apps and Agents** track.
 
@@ -18,7 +18,7 @@ application never trusts that output directly:
 1. Zod validates the model's JSON, including real `YYYY-MM-DD` dates.
 2. A deterministic policy marks each event `proposed` or `incomplete` based
    on the fields that activity requires.
-3. If a required field is missing, FarmMind asks one clarification question
+3. If a required field is missing, Tilly asks one clarification question
    instead of guessing.
 4. When a note refers to a confirmed field or crop, the application sends a
    small farm-memory list to Nemotron. Deterministic verification checks every
@@ -70,7 +70,7 @@ Working today:
   and never nudged about.
 - `saved_by` provenance (`agent` or `farmer`) on every record.
 - **A WhatsApp-style chat.** One conversation fills the screen: the
-  farmer's messages on the right, FarmMind's receipts, questions, and
+  farmer's messages on the right, Tilly's receipts, questions, and
   answers on the left, each with a time. A new conversation opens with
   a greeting for the time of day that names the farm and its last record
   ("Good morning! The last thing you recorded on River Farm was weeding in
@@ -82,13 +82,13 @@ Working today:
   the box is empty and Send when it has text. **Tap to speak** puts the
   transcript in the box so the farmer can check it before sending.
   **Hands-free** listens until stopped and sends only what follows the
-  farm's wake word ("Hey FarmMind", "OK Farm", "Hey Farm", or a custom
+  farm's wake word ("Hey Tilly", "OK Tilly", "Hey Farm", or a custom
   phrase), with a chime when it hears it. Hold the mic to open voice
   settings. Speech recognition is the browser's own (Chrome and Edge; Token
   Factory has no speech models on this account): **the browser vendor's
   speech service (Google in Chrome, Microsoft in Edge) hears everything
   said while the mic is on.** Wake word matching runs in the browser, so
-  only the words after the wake word are sent to FarmMind. Browsers without
+  only the words after the wake word are sent to Tilly. Browsers without
   speech recognition, such as Firefox, show only the Send button.
 - **Multiple farms.** A farmer can add farms and switch between them, or
   name one in a message ("I weeded at River Farm"); code checks the name
@@ -197,7 +197,7 @@ credentials and consumes model credits.
 
 ## Model routing
 
-FarmMind follows the hackathon guidance: Nemotron Nano for fast, everyday
+Tilly follows the hackathon guidance: Nemotron Nano for fast, everyday
 calls (intent/filter extraction) and Nemotron Ultra (or Super) for reasoning
 over farm history when generating answers. Each role has its own environment
 variable:
@@ -211,9 +211,9 @@ variable:
 
 Both are required. Without `NEBIUS_MODEL_EXTRACTION` (or the older
 `NEBIUS_MODEL`) no message can be read; without `NEBIUS_MODEL_ANSWER`,
-questions and reports fail. In either case FarmMind replies with an error
+questions and reports fail. In either case Tilly replies with an error
 naming the missing variable instead of guessing a model.
 
 ## License
 
-FieldLedger is released under the [MIT License](LICENSE).
+Tilly is released under the [MIT License](LICENSE).

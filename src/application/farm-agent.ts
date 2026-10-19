@@ -251,7 +251,7 @@ async function loadFarmMemoryQuietly(
   try {
     return await loadFarmMemory(db, farmId, currentDate);
   } catch (error) {
-    console.error("FarmMind memory load failed", error);
+    console.error("Tilly memory load failed", error);
     return { fields: [], recentEvents: [] };
   }
 }

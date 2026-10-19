@@ -51,7 +51,7 @@ export async function POST(request: Request): Promise<Response> {
       farmId = await getExistingFarmId(db, request);
       if (farmId) farmMemory = await loadFarmMemory(db, farmId, currentDate);
     } catch (memoryError) {
-      console.error("FarmMind memory load failed", memoryError);
+      console.error("Tilly memory load failed", memoryError);
       farmMemory = { fields: [], recentEvents: [] };
     }
     const result = await extractFarmEvent(
@@ -60,7 +60,7 @@ export async function POST(request: Request): Promise<Response> {
       clarifications,
       farmMemory,
     );
-    console.info("FarmMind memory interpretation", {
+    console.info("Tilly memory interpretation", {
       farmId: farmId ?? null,
       memoryItems: farmMemory.fields.length + farmMemory.recentEvents.length,
       memoryEventIds: result.events.flatMap(
@@ -69,11 +69,11 @@ export async function POST(request: Request): Promise<Response> {
     });
     const parsedResult = farmInteractionResultSchema.safeParse(result);
     const duration = Date.now() - modelStart;
-    console.info(`FarmMind model call: ${duration}ms`);
+    console.info(`Tilly model call: ${duration}ms`);
     if (!parsedResult.success) {
-      console.error("FarmMind returned invalid data", parsedResult.error);
+      console.error("Tilly returned invalid data", parsedResult.error);
       return Response.json(
-        { error: "FarmMind could not process that message. Please try again." },
+        { error: "Tilly could not process that message. Please try again." },
         { status: 502 },
       );
     }
@@ -82,15 +82,15 @@ export async function POST(request: Request): Promise<Response> {
     const duration = Date.now() - modelStart;
     const status = error instanceof APIConnectionTimeoutError ? 504 : 502;
     console.error(
-      `FarmMind model call failed (${status}) after ${duration}ms`,
+      `Tilly model call failed (${status}) after ${duration}ms`,
       error,
     );
     return Response.json(
       {
         error:
           status === 504
-            ? "FarmMind is taking longer than expected. Please try again."
-            : "FarmMind could not process that message. Please try again.",
+            ? "Tilly is taking longer than expected. Please try again."
+            : "Tilly could not process that message. Please try again.",
       },
       { status },
     );

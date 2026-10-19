@@ -19,7 +19,7 @@ export function eventErrorResponse(error: unknown): Response {
     return Response.json({ error: error.message }, { status: 409 });
   console.error("Farm event request failed", error);
   return Response.json(
-    { error: "FarmMind could not save that record. Please try again." },
+    { error: "Tilly could not save that record. Please try again." },
     { status: 500 },
   );
 }

@@ -333,7 +333,7 @@ export default function AgentFeed({
             </span>
             {elapsedSeconds > 8
               ? `Still working (${elapsedSeconds}s)…`
-              : "FarmMind is thinking…"}
+              : "Tilly is thinking…"}
           </p>
         </Bubble>
       )}

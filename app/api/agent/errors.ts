@@ -20,25 +20,25 @@ export function agentErrorResponse(error: unknown): Response {
   if (error instanceof LifecycleError)
     return Response.json({ error: error.message }, { status: 409 });
   if (error instanceof ModelConfigurationError) {
-    console.error("FarmMind model configuration failed", error);
+    console.error("Tilly model configuration failed", error);
     return Response.json(
       {
         error:
           error.role === "extraction"
-            ? "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION)."
-            : "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+            ? "Tilly can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION)."
+            : "Tilly can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
       },
       { status: 500 },
     );
   }
   if (error instanceof APIConnectionTimeoutError)
     return Response.json(
-      { error: "FarmMind is taking longer than expected. Please try again." },
+      { error: "Tilly is taking longer than expected. Please try again." },
       { status: 504 },
     );
-  console.error("FarmMind agent request failed", error);
+  console.error("Tilly agent request failed", error);
   return Response.json(
-    { error: "FarmMind could not process that message. Please try again." },
+    { error: "Tilly could not process that message. Please try again." },
     { status: 502 },
   );
 }

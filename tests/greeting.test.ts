@@ -14,7 +14,7 @@ const weeding = {
 describe("buildGreeting", () => {
   it("greets a farm with no records and invites the first one", () => {
     expect(buildGreeting("River Farm", null, at(8))).toBe(
-      "Good morning! I'm FarmMind. Tell me what happened on River Farm today, in your own words, and I'll keep the record.",
+      "Good morning! I'm Tilly. Tell me what happened on River Farm today, in your own words, and I'll keep the record.",
     );
   });
 

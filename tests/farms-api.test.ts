@@ -180,7 +180,7 @@ describe("farms API", () => {
       );
       expect(response.status).toBe(200);
       await expect(response.json()).resolves.toEqual({
-        wakeWord: "hey farmmind",
+        wakeWord: "hey tilly",
         wakeWordEnabled: false,
       });
     });
@@ -213,7 +213,7 @@ describe("farms API", () => {
         params(riverId),
       );
       await expect(other.json()).resolves.toMatchObject({
-        wakeWord: "hey farmmind",
+        wakeWord: "hey tilly",
       });
     });
 
@@ -270,7 +270,7 @@ describe("farms API", () => {
         params(homeId),
       );
       await expect(owner.json()).resolves.toMatchObject({
-        wakeWord: "hey farmmind",
+        wakeWord: "hey tilly",
       });
     });
 

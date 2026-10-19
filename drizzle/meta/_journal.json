@@ -43,6 +43,13 @@
       "when": 1792162555669,
       "tag": "0005_quick_sleepwalker",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1792412859258,
+      "tag": "0006_tilly_wake_word",
+      "breakpoints": true
     }
   ]
 }

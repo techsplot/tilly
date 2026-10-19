@@ -41,8 +41,8 @@ const PHRASES: Record<SmallTalk, string[]> = {
 };
 
 // Words that may surround a greeting without changing it ("hello there",
-// "hi FarmMind").
-const ADDRESS = new Set(["there", "farmmind", "farm", "mind", "o", "oh"]);
+// "hi Tilly").
+const ADDRESS = new Set(["there", "tilly", "farm", "o", "oh"]);
 
 function normalize(message: string): string {
   return message

@@ -74,7 +74,7 @@ export default function WakeWordSettings({
             <strong>Hands-free</strong>
             <small>
               Tap the mic once, then start each message with your wake word.
-              FarmMind only receives what you say after it.
+              Tilly only receives what you say after it.
             </small>
           </span>
         </label>

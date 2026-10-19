@@ -93,7 +93,7 @@ describe("extract event route", () => {
     );
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not process that message. Please try again.",
+      error: "Tilly could not process that message. Please try again.",
     });
   });
 

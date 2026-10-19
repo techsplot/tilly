@@ -227,7 +227,7 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+        "Tilly can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
     });
   });
 
@@ -252,7 +252,7 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
+        "Tilly can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
     });
   });
 
@@ -272,7 +272,7 @@ describe("agent route", () => {
     );
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not process that message. Please try again.",
+      error: "Tilly could not process that message. Please try again.",
     });
   });
 });

@@ -3,24 +3,45 @@ import { matchWakeWord, wakeWordSchema } from "../src/domain/wake-word";
 
 describe("matchWakeWord", () => {
   it("detects the default wake word and extracts the command", () => {
-    expect(
-      matchWakeWord("hey farmmind I weeded the field", "hey farmmind"),
-    ).toEqual({ matched: true, command: "I weeded the field" });
+    expect(matchWakeWord("hey tilly I weeded the field", "hey tilly")).toEqual({
+      matched: true,
+      command: "I weeded the field",
+    });
   });
 
   it("ignores case and punctuation from speech-to-text", () => {
     expect(
-      matchWakeWord("Hey, FarmMind! I sprayed the back field.", "hey farmmind"),
+      matchWakeWord("Hey, Tilly! I sprayed the back field.", "hey tilly"),
     ).toEqual({ matched: true, command: "I sprayed the back field." });
   });
 
   it("treats spacing inside the wake word as the same phrase", () => {
-    expect(
-      matchWakeWord("hey farm mind I planted maize", "hey farmmind"),
-    ).toEqual({ matched: true, command: "I planted maize" });
-    expect(
-      matchWakeWord("ok farmmind I planted maize", "ok farm mind"),
-    ).toEqual({ matched: true, command: "I planted maize" });
+    expect(matchWakeWord("heytilly I planted maize", "hey tilly")).toEqual({
+      matched: true,
+      command: "I planted maize",
+    });
+    expect(matchWakeWord("ok tilly I planted maize", "o k tilly")).toEqual({
+      matched: true,
+      command: "I planted maize",
+    });
+  });
+
+  it.each(["Tillie", "Tilley", "Tilli", "Tili"])(
+    "hears %s as Tilly",
+    (spelling) => {
+      expect(
+        matchWakeWord(`Hey ${spelling}, I weeded the north field`, "hey tilly"),
+      ).toEqual({ matched: true, command: "I weeded the north field" });
+      expect(
+        matchWakeWord(`ok ${spelling.toLowerCase()} I sprayed`, "ok tilly"),
+      ).toEqual({ matched: true, command: "I sprayed" });
+    },
+  );
+
+  it("does not hear a word that only rhymes with Tilly", () => {
+    expect(matchWakeWord("hey silly I weeded", "hey tilly").matched).toBe(
+      false,
+    );
   });
 
   it("accepts okay for ok", () => {
@@ -43,10 +64,10 @@ describe("matchWakeWord", () => {
   });
 
   it("only matches the farm's own wake word", () => {
-    expect(matchWakeWord("hey farmmind I weeded", "hey buddy").matched).toBe(
+    expect(matchWakeWord("hey tilly I weeded", "hey buddy").matched).toBe(
       false,
     );
-    expect(matchWakeWord("hey buddy I weeded", "hey farmmind").matched).toBe(
+    expect(matchWakeWord("hey buddy I weeded", "hey tilly").matched).toBe(
       false,
     );
   });
@@ -59,8 +80,7 @@ describe("matchWakeWord", () => {
 
   it("ignores the wake word in the middle of a sentence", () => {
     expect(
-      matchWakeWord("I told him hey farmmind is useful", "hey farmmind")
-        .matched,
+      matchWakeWord("I told him hey tilly is useful", "hey tilly").matched,
     ).toBe(false);
   });
 
@@ -71,7 +91,7 @@ describe("matchWakeWord", () => {
   });
 
   it("returns no command when only the wake word was said", () => {
-    expect(matchWakeWord("Hey FarmMind.", "hey farmmind")).toEqual({
+    expect(matchWakeWord("Hey Tilly.", "hey tilly")).toEqual({
       matched: true,
       command: null,
     });

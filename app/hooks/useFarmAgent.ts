@@ -197,7 +197,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   } catch {
     // fall through to the generic message
   }
-  return "FarmMind could not process that message. Please try again.";
+  return "Tilly could not process that message. Please try again.";
 }
 
 async function postAgentRequest(
@@ -212,7 +212,7 @@ async function postAgentRequest(
     });
   } catch {
     throw new AgentRequestError(
-      "Network connection failed. FarmMind could not confirm whether this was saved.",
+      "Network connection failed. Tilly could not confirm whether this was saved.",
       true,
     );
   }
@@ -227,7 +227,7 @@ async function postAgentRequest(
   const body: unknown = await response.json();
   const parsed = agentResponseSchema.safeParse(body);
   if (!parsed.success)
-    throw new AgentRequestError("FarmMind returned invalid data.", false);
+    throw new AgentRequestError("Tilly returned invalid data.", false);
   return parsed.data.actions;
 }
 

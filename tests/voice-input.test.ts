@@ -44,7 +44,7 @@ class FakeRecognition implements RecognitionLike {
 
 const latest = () => FakeRecognition.instances.at(-1)!;
 
-function setup(mode: VoiceMode, wakeWord = "hey farmmind") {
+function setup(mode: VoiceMode, wakeWord = "hey tilly") {
   const states: VoiceState[] = [];
   const interims: string[] = [];
   const transcripts: Array<[string, VoiceMode]> = [];
@@ -129,7 +129,7 @@ describe("voice controller", () => {
       voice.controller.start();
       expect(latest().continuous).toBe(true);
 
-      latest().speak("Hey FarmMind, I sprayed the back field");
+      latest().speak("Hey Tilly, I sprayed the back field");
       expect(voice.onActivate).toHaveBeenCalledTimes(1);
       expect(voice.transcripts).toEqual([
         ["I sprayed the back field", "wakeWord"],
@@ -154,7 +154,7 @@ describe("voice controller", () => {
     it("uses the next phrase as the command after the wake word alone", () => {
       const voice = setup("wakeWord");
       voice.controller.start();
-      latest().speak("Hey FarmMind");
+      latest().speak("Hey Tilly");
       expect(voice.onActivate).toHaveBeenCalledTimes(1);
       expect(voice.transcripts).toEqual([]);
       latest().speak("I fertilized the maize");
@@ -166,7 +166,7 @@ describe("voice controller", () => {
     it("stops waiting for a command after a few seconds", () => {
       const voice = setup("wakeWord");
       voice.controller.start();
-      latest().speak("Hey FarmMind");
+      latest().speak("Hey Tilly");
       voice.runTimers();
       latest().speak("I told my friend about the farm");
       expect(voice.transcripts).toEqual([]);
@@ -175,7 +175,7 @@ describe("voice controller", () => {
     it("uses the custom wake word", () => {
       const voice = setup("wakeWord", "hey buddy");
       voice.controller.start();
-      latest().speak("hey farmmind I weeded");
+      latest().speak("hey tilly I weeded");
       latest().speak("Hey Buddy I weeded");
       expect(voice.transcripts).toEqual([["I weeded", "wakeWord"]]);
     });

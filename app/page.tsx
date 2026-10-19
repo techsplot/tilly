@@ -115,7 +115,7 @@ export default function HomePage() {
         onChoose={openDrawer}
       />
 
-      <main className="chat" aria-label="Conversation with FarmMind">
+      <main className="chat" aria-label="Conversation with Tilly">
         <div className="chat-column">
           {agent.farmError && (
             <p className="banner-error" role="alert">

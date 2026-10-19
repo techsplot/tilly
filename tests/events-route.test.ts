@@ -166,7 +166,7 @@ describe("farm event routes", () => {
     const response = await GET(new Request("http://localhost/api/events"));
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not save that record. Please try again.",
+      error: "Tilly could not save that record. Please try again.",
     });
   });
 
@@ -183,7 +183,7 @@ describe("farm event routes", () => {
     );
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not save that record. Please try again.",
+      error: "Tilly could not save that record. Please try again.",
     });
   });
 
@@ -200,7 +200,7 @@ describe("farm event routes", () => {
     );
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not save that record. Please try again.",
+      error: "Tilly could not save that record. Please try again.",
     });
   });
 });
