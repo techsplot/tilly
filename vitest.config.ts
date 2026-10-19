@@ -11,5 +11,8 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.ts"],
     maxWorkers: 1,
+    // Many tests start a fresh PGlite database and run every migration,
+    // which can pass the 5 s default on a loaded machine or CI runner.
+    testTimeout: 20_000,
   },
 });

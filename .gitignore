@@ -7,3 +7,12 @@ next-env.d.ts
 !.env.example
 coverage/
 *.log
+
+# Internal working notes, kept locally but not published
+.github/tasks/
+.github/agents/
+.github/hackathon.md
+.github/implementation-plan.md
+agent.md
+.vscode/
+scripts/

@@ -6,9 +6,7 @@ and grounded follow-up actions.
 
 FieldLedger is being built for the
 [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/)
-in the **Best Apps and Agents** track. See the
-[hackathon brief](.github/hackathon.md) for the rules, deadline, and
-submission checklist.
+in the **Best Apps and Agents** track.
 
 ## How it uses Nemotron and Nebius
 
@@ -122,17 +120,7 @@ Working today:
   and `wake_word`/`wake_word_enabled` columns.
 
 Not built yet: a hosted demo (Phase 10), reminders delivered outside the app
-(Phase 11), and evaluation results (Phase 13). The
-[implementation plan](.github/implementation-plan.md) tracks progress phase
-by phase.
-
-**An unfinished experiment:** `scripts/generate-wake-word-dataset.ts` and
-`scripts/train-wake-word-model.ts` were written to fine-tune Nemotron Nano
-as a wake word detector through Token Factory. That cannot run as written:
-Token Factory does not offer Nemotron for fine-tuning, and only two Llama
-models can be deployed per-token after fine-tuning. The scripts are kept
-for reference; nothing in the app depends on them, and wake words are
-matched in the browser instead.
+(Phase 11), and evaluation results (Phase 13).
 
 ## Prerequisites
 
@@ -206,35 +194,6 @@ pnpm extract-event
 
 `pnpm extract-event` makes a live model request, so it requires valid Nebius
 credentials and consumes model credits.
-
-## What you learn by building FieldLedger
-
-This project is intentionally a learning path, not just an application:
-
-1. **LLM API fundamentals** — authentication, model selection, prompts,
-   latency, token usage, failures, and cost.
-2. **Structured generation** — turning uncertain model text into validated
-   TypeScript data with Zod.
-3. **AI product design** — deciding when to infer, clarify, confirm, or refuse.
-4. **Context and memory** — retrieving the right farm history instead of
-   sending an entire database to a model.
-5. **Agent boundaries** — combining model reasoning with deterministic code,
-   tools, permissions, and safety gates.
-6. **Data modeling** — representing farms, fields, crops, events, corrections,
-   reminders, and provenance.
-7. **Evaluation** — building test cases and measuring extraction accuracy,
-   ambiguity detection, hallucinations, and response time.
-8. **Full-stack engineering** — connecting a Next.js interface to application
-   services and infrastructure adapters.
-9. **Production AI engineering** — environment configuration, observability,
-   retries, deployment, background jobs, and responsible handling of user
-   data.
-
-Each fragment should leave you able to explain what the code does, why the
-tool was chosen, what can fail, and how we measured the result.
-
-For the project-specific learning and architecture instructions, use the
-`FieldLedger Learning Engineer` custom agent in `.github/agents/`.
 
 ## Model routing
 

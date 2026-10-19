@@ -10,8 +10,6 @@
     "test": "vitest run",
     "format": "prettier --write .",
     "extract-event": "tsx src/application/extract-farm-event.ts",
-    "generate-wake-word-dataset": "tsx scripts/generate-wake-word-dataset.ts",
-    "train-wake-word": "tsx scripts/train-wake-word-model.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate"
   },
