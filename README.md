@@ -184,8 +184,10 @@ new farm; there is no login in this phase.
 ## Commands
 
 ```powershell
-pnpm dev
-pnpm build
+pnpm dev            # development server
+pnpm typecheck      # tsc --noEmit
+pnpm build          # production build (next build, standalone output)
+pnpm start          # serve the production build
 pnpm test
 pnpm lint
 pnpm format
@@ -194,6 +196,13 @@ pnpm extract-event
 
 `pnpm extract-event` makes a live model request, so it requires valid Nebius
 credentials and consumes model credits.
+
+`pnpm build` writes a standalone server to `.next/standalone`; run it with
+`node .next/standalone/server.js` (copy `.next/static` into
+`.next/standalone/.next/static` first, and `public` if there is one). `pnpm start`
+still works but Next prints a warning for standalone output. On Windows the
+standalone step creates symlinks, so it fails with `EPERM` unless Developer
+Mode is on; build in Docker, WSL, or CI instead.
 
 ## Model routing
 
