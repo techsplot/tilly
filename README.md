@@ -1,5 +1,7 @@
 # Tilly
 
+**Live demo:** _coming soon_
+
 Tilly is a farm memory you keep by talking. Tell Tilly what you did on the
 farm, in your own words, and it turns that into confirmed, searchable farm
 records and grounded follow-up actions.
@@ -117,8 +119,14 @@ Working today:
   required-field policy; only agent mode follows the save-first rules above.
 - Run `pnpm db:migrate` after pulling to apply the `date_assumed`,
   `event_time`/`time_of_day`, `last_nudged_at`/`nudges_stopped`, multi-farm,
-  and `wake_word`/`wake_word_enabled` columns.
-
+  and `wake_word`/`wake_word_enabled` columns, and migration 0006, which
+  moves farms on the old "Hey FarmMind" default to "Hey Tilly".
+- **A sample farm.** An empty farm's welcome message and the Farms drawer
+  offer "Try a sample farm": a farm named "Sample Farm" with 15 records from
+  the past three weeks (one with a missing field, one corrected), so there
+  is something to ask about straight away. It is created without a model
+  call, with dates counted back from today, and a second tap opens the same
+  farm.
 - **Rate limits on model calls.** `POST /api/agent` and
   `POST /api/extract-event` allow 10 requests a minute and 100 an hour per
   session, and 30 a minute and 300 an hour per IP; a request must pass
@@ -128,9 +136,13 @@ Working today:
   returns `429` with `Retry-After`, and the chat shows "Tilly is busy right
   now" as an ordinary reply. The counts are in memory, so they are per
   container and reset on restart; that is fine for one demo instance.
+- **Ready to host.** A Docker image, a database health check, and one log
+  line per model-backed request with no personal content (see
+  [Deployment](#deployment)).
 
-Not built yet: a hosted demo (Phase 10), reminders delivered outside the app
-(Phase 11), and evaluation results (Phase 13).
+Not built yet: the hosted demo itself (the image is ready; the endpoint is
+not created yet), a farm recovery code (deferred), reminders delivered
+outside the app (Phase 11), and evaluation results (Phase 13).
 
 ## Prerequisites
 
@@ -232,6 +244,84 @@ Both are required. Without `NEBIUS_MODEL_EXTRACTION` (or the older
 `NEBIUS_MODEL`) no message can be read; without `NEBIUS_MODEL_ANSWER`,
 questions and reports fail. In either case Tilly replies with an error
 naming the missing variable instead of guessing a model.
+
+## Deployment
+
+The app ships as one Docker image that runs the Next.js standalone server
+on port 3000 as a non-root user. It is planned to run on a Nebius
+Serverless AI endpoint (CPU, public), but nothing in the image is
+Nebius-specific; any Docker host works.
+
+### Build the image
+
+```powershell
+docker build -t tilly .
+```
+
+The image contains no `.env` and no secrets (`.dockerignore` excludes them,
+and the Dockerfile has no `ARG` or `ENV` for them).
+
+### Environment variables
+
+Set these on the host or endpoint at runtime:
+
+| Variable                  | Required | Purpose                                                          |
+| ------------------------- | -------- | ---------------------------------------------------------------- |
+| `DATABASE_URL`            | yes      | PostgreSQL connection string (Neon)                              |
+| `NEBIUS_API_KEY`          | yes      | Token Factory API key                                            |
+| `NEBIUS_MODEL_EXTRACTION` | yes      | Nano model for reading messages                                  |
+| `NEBIUS_MODEL_ANSWER`     | yes      | Ultra or Super model for answers and reports                     |
+| `NEBIUS_BASE_URL`         | no       | Defaults to `https://api.tokenfactory.nebius.com/v1/`            |
+| `MODEL_DAILY_LIMIT`       | no       | Nebius calls allowed per UTC day across all users (default 3000) |
+
+To try the image locally:
+
+```powershell
+docker run -p 3000:3000 --env-file .env tilly
+```
+
+`docker --env-file` keeps quotes as part of the value, unlike dotenv, so
+write values in that file without quotes (`DATABASE_URL=postgresql://...`).
+
+### Migrations
+
+The container never migrates on start. Run migrations from a laptop
+against the production database before deploying a version that needs
+them:
+
+```powershell
+$env:DATABASE_URL = "<production connection string>"
+pnpm db:migrate
+```
+
+### Health check
+
+`GET /api/health` returns `200 {"status":"ok"}` when the database answers
+`select 1` and `503 {"status":"error"}` when it does not. It never calls a
+model, never returns error details, and is not cached. The image's Docker
+`HEALTHCHECK` uses it.
+
+### Rate limits
+
+| Limit                   | Per minute | Per hour | Per day     |
+| ----------------------- | ---------- | -------- | ----------- |
+| Each session (cookie)   | 10         | 100      |             |
+| Each client IP          | 30         | 300      |             |
+| All users, Nebius calls |            |          | 3,000 (env) |
+
+They apply to `POST /api/agent` and `POST /api/extract-event`, the only
+routes that reach Nebius. The client IP is the first `x-forwarded-for`
+value. The counts live in the container's memory: they reset when it
+restarts and are not shared between containers, so run one instance (or
+move them to a shared store first).
+
+### Logs
+
+Each model-backed request writes one JSON line with the route, status,
+duration, model roles used, number of model calls, and whether the
+thinking retry ran. Logs never contain message text, prompts, model
+output, farm or field names, cookies, or IPs; in production, server errors
+are logged by type and status only.
 
 ## License
 
