@@ -1,24 +1,20 @@
 # Tilly production image. Secrets (NEBIUS_API_KEY, DATABASE_URL, model
 # names) are never baked in; they come from the host's environment at
-# runtime. Migrations are run separately (pnpm db:migrate), not on start.
+# runtime. Migrations are run separately (npm run db:migrate), not on start.
 
 FROM node:22-slim AS base
-ENV PNPM_HOME=/pnpm
-ENV PATH=$PNPM_HOME:$PATH
 ENV NEXT_TELEMETRY_DISABLED=1
-# Uses the pnpm version pinned in package.json's "packageManager".
-RUN corepack enable
 
 FROM base AS deps
 WORKDIR /app
-COPY package.json pnpm-lock.yaml ./
-RUN pnpm install --frozen-lockfile
+COPY package.json package-lock.json ./
+RUN npm ci --no-audit --no-fund
 
 FROM base AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm build
+RUN npm run build
 
 FROM node:22-slim AS runtime
 WORKDIR /app

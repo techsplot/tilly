@@ -117,7 +117,7 @@ Working today:
   them; they remain for direct API use (for example the earlier
   proposal/confirm flow, or scripted access). They keep the older, blocking
   required-field policy; only agent mode follows the save-first rules above.
-- Run `pnpm db:migrate` after pulling to apply the `date_assumed`,
+- Run `npm run db:migrate` after pulling to apply the `date_assumed`,
   `event_time`/`time_of_day`, `last_nudged_at`/`nudges_stopped`, multi-farm,
   and `wake_word`/`wake_word_enabled` columns, and migration 0006, which
   moves farms on the old "Hey FarmMind" default to "Hey Tilly".
@@ -146,8 +146,7 @@ outside the app (Phase 11), and evaluation results (Phase 13).
 
 ## Prerequisites
 
-- Node.js 22 or newer
-- pnpm 10 or newer
+- Node.js 22 or newer (npm comes with it)
 - A Nebius Token Factory API key
 - The exact permitted NVIDIA model identifier available to your account
 
@@ -170,24 +169,14 @@ Do not paste the key into source code, commit it, or share it in chat. The
 
 ## Setup
 
-Install pnpm globally:
+Install dependencies and create your `.env`:
 
 ```powershell
-npm install -g pnpm@10.18.2
-```
-
-Or enable corepack (requires admin):
-
-```powershell
-corepack enable
-```
-
-Then install dependencies:
-
-```powershell
-pnpm install
+npm install
 Copy-Item .env.example .env
 ```
+
+(On macOS or Linux: `cp .env.example .env`.)
 
 Set `NEBIUS_API_KEY`, `NEBIUS_MODEL_EXTRACTION`, and `NEBIUS_MODEL_ANSWER` in `.env`. Never commit `.env`.
 
@@ -195,10 +184,10 @@ Set `DATABASE_URL` to a PostgreSQL connection string, then apply the committed
 migrations:
 
 ```powershell
-pnpm db:migrate
+npm run db:migrate
 ```
 
-Run `pnpm db:migrate` again after pulling later schema migrations.
+Run `npm run db:migrate` again after pulling later schema migrations.
 
 The browser receives an anonymous farm cookie. Clearing browser data starts a
 new farm; there is no login in this phase.
@@ -206,25 +195,24 @@ new farm; there is no login in this phase.
 ## Commands
 
 ```powershell
-pnpm dev            # development server
-pnpm typecheck      # tsc --noEmit
-pnpm build          # production build (next build, standalone output)
-pnpm start          # serve the production build
-pnpm test
-pnpm lint
-pnpm format
-pnpm extract-event
+npm run dev            # development server at http://localhost:3000
+npm run typecheck      # tsc --noEmit
+npm run build          # production build (next build, standalone output)
+npm start              # serve the production build
+npm test
+npm run lint
+npm run format
+npm run extract-event
 ```
 
-`pnpm extract-event` makes a live model request, so it requires valid Nebius
-credentials and consumes model credits.
+`npm run extract-event` makes a live model request, so it requires valid
+Nebius credentials and consumes model credits.
 
-`pnpm build` writes a standalone server to `.next/standalone`; run it with
-`node .next/standalone/server.js` (copy `.next/static` into
-`.next/standalone/.next/static` first, and `public` if there is one). `pnpm start`
-still works but Next prints a warning for standalone output. On Windows the
-standalone step creates symlinks, so it fails with `EPERM` unless Developer
-Mode is on; build in Docker, WSL, or CI instead.
+`npm run build` also writes a standalone server to `.next/standalone`, which
+is what the Docker image runs. To run it directly, copy `.next/static` into
+`.next/standalone/.next/static` (and `public` if there is one), then run
+`node .next/standalone/server.js`. `npm start` works too, with a warning
+from Next about standalone output.
 
 ## Model routing
 
@@ -291,7 +279,7 @@ them:
 
 ```powershell
 $env:DATABASE_URL = "<production connection string>"
-pnpm db:migrate
+npm run db:migrate
 ```
 
 ### Health check
