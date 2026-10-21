@@ -47,12 +47,8 @@
           "name": "event_corrections_event_id_farm_events_id_fk",
           "tableFrom": "event_corrections",
           "tableTo": "farm_events",
-          "columnsFrom": [
-            "event_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["event_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -239,12 +235,8 @@
           "name": "farm_events_farm_id_farms_id_fk",
           "tableFrom": "farm_events",
           "tableTo": "farms",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["farm_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
@@ -252,12 +244,8 @@
           "name": "farm_events_field_id_fields_id_fk",
           "tableFrom": "farm_events",
           "tableTo": "fields",
-          "columnsFrom": [
-            "field_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["field_id"],
+          "columnsTo": ["id"],
           "onDelete": "set null",
           "onUpdate": "no action"
         }
@@ -408,12 +396,8 @@
           "name": "fields_farm_id_farms_id_fk",
           "tableFrom": "fields",
           "tableTo": "farms",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["farm_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -443,31 +427,17 @@
     "public.farm_event_saved_by": {
       "name": "farm_event_saved_by",
       "schema": "public",
-      "values": [
-        "agent",
-        "farmer"
-      ]
+      "values": ["agent", "farmer"]
     },
     "public.farm_event_status": {
       "name": "farm_event_status",
       "schema": "public",
-      "values": [
-        "proposed",
-        "incomplete",
-        "confirmed",
-        "corrected",
-        "rejected"
-      ]
+      "values": ["proposed", "incomplete", "confirmed", "corrected", "rejected"]
     },
     "public.farm_time_of_day": {
       "name": "farm_time_of_day",
       "schema": "public",
-      "values": [
-        "morning",
-        "afternoon",
-        "evening",
-        "night"
-      ]
+      "values": ["morning", "afternoon", "evening", "night"]
     }
   },
   "schemas": {},
