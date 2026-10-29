@@ -50,6 +50,13 @@
       "when": 1792412859258,
       "tag": "0006_tilly_wake_word",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1792768864901,
+      "tag": "0007_milky_katie_power",
+      "breakpoints": true
     }
   ]
 }

@@ -13,7 +13,8 @@
     "format": "prettier --write .",
     "extract-event": "tsx src/application/extract-farm-event.ts",
     "db:generate": "drizzle-kit generate",
-    "db:migrate": "drizzle-kit migrate"
+    "db:migrate": "drizzle-kit migrate",
+    "reminder-job": "tsx scripts/run-reminder-job.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.7",

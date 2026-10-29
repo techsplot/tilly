@@ -10,6 +10,12 @@ Tilly is being built for the
 [Nebius x NVIDIA Global AI Hackathon](https://nebiusglobalaihackathon.devpost.com/)
 in the **Best Apps and Agents** track.
 
+## Hackathon judging guide
+
+See [HACKATHON-JUDGING-GUIDE.md](./HACKATHON-JUDGING-GUIDE.md) for the
+video-derived judging criteria, Tilly-specific demo narrative, limitations to
+document, and final submission checklist.
+
 ## How it uses Nemotron and Nebius
 
 Every farm note is interpreted at runtime by

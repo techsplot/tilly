@@ -91,6 +91,23 @@ const agentActionSchema = z.discriminatedUnion("type", [
     text: z.string(),
     suggestions: z.array(suggestionSchema),
   }),
+  z.object({
+    type: z.literal("reminder-set"),
+    reminderId: z.string(),
+    text: z.string(),
+  }),
+  z.object({
+    type: z.literal("reminders-list"),
+    reminders: z.array(
+      z.object({
+        id: z.string(),
+        activity: z.string(),
+        field: z.string().nullable(),
+        crop: z.string().nullable(),
+        date: z.string(),
+      }),
+    ),
+  }),
 ]);
 
 const agentResponseSchema = z.object({ actions: z.array(agentActionSchema) });

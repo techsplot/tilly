@@ -182,7 +182,35 @@ function ActionBubble({
       </Bubble>
     );
   }
+  if (action.type === "reminder-set") {
+    return (
+      <Bubble from="agent" at={item.at}>
+        <p>{action.text}</p>
+      </Bubble>
+    );
+  }
+  if (action.type === "reminders-list") {
+    return (
+      <Bubble from="agent" at={item.at}>
+        <p>📅 Upcoming reminders:</p>
+        {action.reminders.length === 0 ? (
+          <p>You have no upcoming reminders.</p>
+        ) : (
+          <ul>
+            {action.reminders.map((reminder) => (
+              <li key={reminder.id}>
+                {formatDate(reminder.date)}: {reminder.activity}
+                {reminder.field && ` ${reminder.field}`}
+                {reminder.crop && ` (${reminder.crop})`}
+              </li>
+            ))}
+          </ul>
+        )}
+      </Bubble>
+    );
+  }
 
+  // Handle undoable actions (recorded, corrected, deleted)
   const memory = action.event.resolvedFromMemory ?? [];
   return (
     <Bubble

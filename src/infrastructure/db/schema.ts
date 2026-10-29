@@ -40,6 +40,16 @@ export const farmTimeOfDayEnum = pgEnum("farm_time_of_day", [
   "evening",
   "night",
 ] as const);
+export const reminderStatusEnum = pgEnum("reminder_status", [
+  "pending",
+  "delivered",
+  "cancelled",
+] as const);
+export const reminderKindEnum = pgEnum("reminder_kind", [
+  "manual",
+  "gap",
+  "suggested",
+] as const);
 
 export const farms = pgTable(
   "farms",
@@ -136,7 +146,47 @@ export const eventCorrections = pgTable("event_corrections", {
     .notNull(),
 });
 
+export const reminders = pgTable(
+  "reminders",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "cascade" }),
+    sourceEventId: uuid("source_event_id").references(() => farmEvents.id, {
+      onDelete: "cascade",
+    }),
+    reminderDate: date("reminder_date").notNull(),
+    activity: text("activity").notNull(),
+    fieldName: text("field_name"),
+    crop: text("crop"),
+    message: text("message"),
+    status: reminderStatusEnum("status").notNull().default("pending"),
+    reminderKind: reminderKindEnum("reminder_kind").notNull(),
+    deliveryAttempts: numeric("delivery_attempts").notNull().default("0"),
+    lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+  },
+  (table) => ({
+    farmStatusDate: index("reminders_farm_status_date_idx").on(
+      table.farmId,
+      table.status,
+      table.reminderDate,
+    ),
+    sourceEventKind: uniqueIndex("reminders_source_event_kind_idx").on(
+      table.sourceEventId,
+      table.reminderKind,
+    ),
+  }),
+);
+
 export type FarmRow = typeof farms.$inferSelect;
 export type FieldRow = typeof fields.$inferSelect;
 export type FarmEventRow = typeof farmEvents.$inferSelect;
 export type EventCorrectionRow = typeof eventCorrections.$inferSelect;
+export type ReminderRow = typeof reminders.$inferSelect;

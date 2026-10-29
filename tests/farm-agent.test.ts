@@ -724,10 +724,14 @@ describe("farm agent service", () => {
     expect(await listTimeline(db, farmId)).toEqual([]);
   });
 
-  it("says reminders are not available yet when asked for one", async () => {
+  it("creates a reminder when asked for one", async () => {
     const farmId = await createFarm(db);
-    // "other" is read a second time with thinking on.
-    mockCreate.mockResolvedValue(modelResponse([], { intent: "other" }));
+    mockCreate.mockResolvedValue(
+      modelResponse([], {
+        intent: "reminder",
+        reminder: { activity: "weeding", when: "in 2 weeks", message: null },
+      }),
+    );
 
     const actions = await handleFarmerMessage(db, farmId, {
       message: "remind me to weed in two weeks",
@@ -736,9 +740,10 @@ describe("farm agent service", () => {
     });
 
     expect(actions[0]).toMatchObject({
-      type: "reply",
-      text: expect.stringContaining("I can't set reminders yet"),
+      type: "reminder-set",
+      text: expect.stringContaining("Reminder set"),
     });
+    expect(actions[0]).toHaveProperty("reminderId");
   });
 
   it("answers a greeting without calling the model", async () => {
