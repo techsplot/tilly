@@ -47,7 +47,7 @@ export const farms = pgTable(
     id: uuid("id").defaultRandom().primaryKey(),
     name: text("name").notNull(),
     sessionId: text("session_id").notNull(),
-    wakeWord: text("wake_word").notNull().default("hey farmmind"),
+    wakeWord: text("wake_word").notNull().default("hey tilly"),
     wakeWordEnabled: boolean("wake_word_enabled").notNull().default(false),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()

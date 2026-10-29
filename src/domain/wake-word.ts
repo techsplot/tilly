@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-export const DEFAULT_WAKE_WORD = "hey farmmind";
-export const PRESET_WAKE_WORDS = ["hey farmmind", "ok farm", "hey farm"];
+export const DEFAULT_WAKE_WORD = "hey tilly";
+export const PRESET_WAKE_WORDS = ["hey tilly", "ok tilly", "hey farm"];
 
 // Letters and spaces only, so the phrase can be spoken and matched against
 // speech-to-text output. Stored lowercase with single spaces.
@@ -18,7 +18,14 @@ export type WakeWordMatch =
 
 // Words speech recognisers commonly put before a phrase.
 const FILLERS = new Set(["um", "umm", "uh", "er", "erm", "ah", "oh", "so"]);
-const SPOKEN_FORMS: Record<string, string> = { okay: "ok" };
+// Speech recognisers spell the name several ways; all of them mean Tilly.
+const SPOKEN_FORMS: Record<string, string> = {
+  okay: "ok",
+  tillie: "tilly",
+  tilley: "tilly",
+  tilli: "tilly",
+  tili: "tilly",
+};
 
 function normalizeToken(token: string): string {
   const word = token.toLowerCase().replace(/[^a-z0-9']/g, "");
@@ -32,9 +39,9 @@ function wakeKey(wakeWord: string): string {
 /**
  * Decides whether a transcript starts with the farm's wake word and returns
  * what was said after it. Runs in the browser so speech without the wake
- * word never reaches FarmMind's server.
+ * word never reaches Tilly's server.
  *
- * Spacing is ignored when comparing ("farm mind" matches "farmmind"), so is
+ * Spacing is ignored when comparing ("ok farm" matches "okfarm"), so is
  * punctuation and case. A wake word said in the middle of a sentence does
  * not count.
  */

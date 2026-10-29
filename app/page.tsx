@@ -12,6 +12,7 @@ import WakeWordSettings, {
   type VoiceSettings,
 } from "@/app/components/WakeWordSettings";
 import { buildGreeting } from "@/app/lib/greeting";
+import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
 
 const DRAWER_TITLES: Record<MenuChoice, string> = {
@@ -115,7 +116,7 @@ export default function HomePage() {
         onChoose={openDrawer}
       />
 
-      <main className="chat" aria-label="Conversation with FarmMind">
+      <main className="chat" aria-label="Conversation with Tilly">
         <div className="chat-column">
           {agent.farmError && (
             <p className="banner-error" role="alert">
@@ -132,6 +133,13 @@ export default function HomePage() {
             greeting={
               activeFarmId
                 ? buildGreeting(agent.activeFarmName, agent.lastRecord)
+                : null
+            }
+            onTrySample={
+              activeFarmId &&
+              !agent.lastRecord &&
+              agent.activeFarmName !== SAMPLE_FARM_NAME
+                ? agent.openSampleFarm
                 : null
             }
           />
@@ -173,6 +181,10 @@ export default function HomePage() {
               }}
               onAdd={async (name) => {
                 await agent.addFarm(name);
+                closeDrawer();
+              }}
+              onTrySample={async () => {
+                await agent.openSampleFarm();
                 closeDrawer();
               }}
             />

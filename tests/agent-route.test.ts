@@ -17,8 +17,12 @@ vi.mock("../src/application/farm-agent", () => ({
 }));
 
 import { APIConnectionTimeoutError } from "openai";
-import { ModelConfigurationError } from "../src/infrastructure/nebius/nebius-client";
+import {
+  ModelBudgetExceededError,
+  ModelConfigurationError,
+} from "../src/infrastructure/nebius/nebius-client";
 import { POST } from "../app/api/agent/route";
+import { resetRequestLimits } from "../app/api/rate-limit";
 
 const request = (body: BodyInit) =>
   new Request("http://localhost/api/agent", {
@@ -29,6 +33,7 @@ const request = (body: BodyInit) =>
 
 describe("agent route", () => {
   beforeEach(() => {
+    resetRequestLimits();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-12T12:00:00Z"));
     mockGetFarmContext.mockResolvedValue({
@@ -227,7 +232,7 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+        "Tilly can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
     });
   });
 
@@ -252,7 +257,7 @@ describe("agent route", () => {
     expect(response.status).toBe(500);
     await expect(response.json()).resolves.toEqual({
       error:
-        "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
+        "Tilly can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION).",
     });
   });
 
@@ -272,7 +277,71 @@ describe("agent route", () => {
     );
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not process that message. Please try again.",
+      error: "Tilly could not process that message. Please try again.",
+    });
+  });
+
+  describe("rate limits", () => {
+    const body = JSON.stringify({
+      message: "I weeded",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    const limitedRequest = (session: string, ip = "203.0.113.7") =>
+      new Request("http://localhost/api/agent", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: `fieldledger_session=${session}`,
+          "x-forwarded-for": `${ip}, 10.0.0.1`,
+        },
+        body,
+      });
+
+    beforeEach(() => {
+      mockHandleFarmerMessage.mockResolvedValue([
+        { type: "reply", text: "OK" },
+      ]);
+    });
+
+    it("returns a friendly 429 with Retry-After past the session limit", async () => {
+      for (let index = 0; index < 10; index += 1) {
+        expect((await POST(limitedRequest("s1"))).status).toBe(200);
+      }
+      const response = await POST(limitedRequest("s1"));
+      expect(response.status).toBe(429);
+      expect(Number(response.headers.get("Retry-After"))).toBeGreaterThan(0);
+      await expect(response.json()).resolves.toEqual({
+        error: "Tilly is busy right now. Please try again in a minute.",
+      });
+      expect(mockHandleFarmerMessage).toHaveBeenCalledTimes(10);
+      // Another session on another IP is not affected.
+      expect((await POST(limitedRequest("s2", "198.51.100.1"))).status).toBe(
+        200,
+      );
+    });
+
+    it("limits one IP across rotating session cookies", async () => {
+      for (let index = 0; index < 30; index += 1) {
+        expect((await POST(limitedRequest(`rotating-${index}`))).status).toBe(
+          200,
+        );
+      }
+      const response = await POST(limitedRequest("rotating-new"));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("Retry-After")).toBeTruthy();
+    });
+
+    it("returns 429 when the daily model budget is used up", async () => {
+      mockHandleFarmerMessage.mockRejectedValue(
+        new ModelBudgetExceededError(3600),
+      );
+      const response = await POST(limitedRequest("s3"));
+      expect(response.status).toBe(429);
+      expect(response.headers.get("Retry-After")).toBe("3600");
+      await expect(response.json()).resolves.toEqual({
+        error: "Tilly is busy right now. Please try again later.",
+      });
     });
   });
 });

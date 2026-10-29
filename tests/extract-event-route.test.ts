@@ -7,6 +7,7 @@ vi.mock("../src/application/extract-farm-event", () => ({
 
 import { APIConnectionTimeoutError } from "openai";
 import { POST } from "../app/api/extract-event/route";
+import { resetRequestLimits } from "../app/api/rate-limit";
 
 const request = (body: BodyInit) =>
   new Request("http://localhost/api/extract-event", {
@@ -35,6 +36,7 @@ const validResult = {
 
 describe("extract event route", () => {
   beforeEach(() => {
+    resetRequestLimits();
     vi.useFakeTimers({ toFake: ["Date"] });
     vi.setSystemTime(new Date("2026-10-11T12:00:00Z"));
     mockExtractFarmEvent.mockReset();
@@ -93,7 +95,7 @@ describe("extract event route", () => {
     );
     expect(response.status).toBe(502);
     await expect(response.json()).resolves.toEqual({
-      error: "FarmMind could not process that message. Please try again.",
+      error: "Tilly could not process that message. Please try again.",
     });
   });
 
@@ -108,5 +110,39 @@ describe("extract event route", () => {
       request(JSON.stringify({ message: "test", currentDate: "2026-10-11" })),
     );
     expect(response.status).toBe(504);
+  });
+});
+
+describe("extract event route rate limit", () => {
+  beforeEach(() => {
+    resetRequestLimits();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-11T12:00:00Z"));
+    mockExtractFarmEvent.mockReset().mockResolvedValue(validResult);
+    // No database in this test, so the memory load logs and falls back.
+    vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it("returns 429 past the session limit", async () => {
+    const limited = () =>
+      new Request("http://localhost/api/extract-event", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          cookie: "fieldledger_session=extract-session",
+        },
+        body: JSON.stringify({ message: "test", currentDate: "2026-10-11" }),
+      });
+    for (let index = 0; index < 10; index += 1) {
+      expect((await POST(limited())).status).toBe(200);
+    }
+    const response = await POST(limited());
+    expect(response.status).toBe(429);
+    expect(response.headers.get("Retry-After")).toBeTruthy();
+    expect(mockExtractFarmEvent).toHaveBeenCalledTimes(10);
   });
 });

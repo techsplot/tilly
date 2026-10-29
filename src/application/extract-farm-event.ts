@@ -26,7 +26,7 @@ import {
 config();
 
 const extractionInstructions = `
-You extract farm activities from a farmer's message.
+You are Tilly, a farm memory assistant. You extract farm activities from a farmer's message.
 
 Return JSON only with this exact shape:
 {
@@ -213,7 +213,7 @@ function needsCarefulRead(
   );
 }
 
-// A reply to FarmMind's question that is itself a question, or names an
+// A reply to Tilly's question that is itself a question, or names an
 // activity the original note did not, needs the careful read from the
 // start. Live testing showed the fast mode storing "I sprayed" as the crop
 // of a pending weeding note and swallowing "when did I last spray?".
@@ -236,7 +236,7 @@ export async function extractFarmEvent(
   clarifications?: { question: string; answer: string }[],
   farmMemory: FarmMemory = { fields: [], recentEvents: [] },
 ): Promise<FarmInteractionResult> {
-  const client = createNebiusClient();
+  const client = createNebiusClient("extraction");
 
   // Build sourceText with provenance: original message + Q/A pairs
   let sourceText = farmerMessage;

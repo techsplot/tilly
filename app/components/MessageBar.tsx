@@ -69,7 +69,7 @@ export default function MessageBar({
     wakeWord,
     onTranscript: (text, from) => {
       // Direct mode: the farmer reviews the words before sending. Wake word
-      // mode is hands-free, so the command goes straight to FarmMind unless
+      // mode is hands-free, so the command goes straight to Tilly unless
       // it is still answering, in which case it waits in the input.
       if (from === "direct" || busyRef.current) {
         onChange(text);

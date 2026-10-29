@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { LifecycleError, ValidationError } from "@/src/domain/farm-event";
 import { NotFoundError } from "@/src/application/errors";
+import { logError } from "@/src/infrastructure/request-log";
 
 export function eventErrorResponse(error: unknown): Response {
   if (error instanceof z.ZodError || error instanceof ValidationError)
@@ -17,9 +18,9 @@ export function eventErrorResponse(error: unknown): Response {
     return Response.json({ error: error.message }, { status: 404 });
   if (error instanceof LifecycleError)
     return Response.json({ error: error.message }, { status: 409 });
-  console.error("Farm event request failed", error);
+  logError("Farm event request failed", error);
   return Response.json(
-    { error: "FarmMind could not save that record. Please try again." },
+    { error: "Tilly could not save that record. Please try again." },
     { status: 500 },
   );
 }

@@ -41,8 +41,8 @@ export default function FarmHistory({
   if (visible.length === 0) {
     return (
       <p className="drawer-note">
-        No records yet. Tell FarmMind what happened on the farm and it will
-        appear here.
+        No records yet. Tell Tilly what happened on the farm and it will appear
+        here.
       </p>
     );
   }

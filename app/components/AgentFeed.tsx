@@ -279,6 +279,62 @@ function FailedBubble({
   );
 }
 
+function WelcomeBubble({
+  greeting,
+  onTrySample,
+}: {
+  greeting: string;
+  onTrySample: (() => Promise<void>) | null;
+}) {
+  const [opening, setOpening] = useState(false);
+  const [failed, setFailed] = useState<string | null>(null);
+
+  async function trySample(open: () => Promise<void>) {
+    setOpening(true);
+    setFailed(null);
+    try {
+      await open();
+    } catch (caughtError) {
+      setFailed(
+        caughtError instanceof Error
+          ? caughtError.message
+          : "The sample farm could not be opened. Please try again.",
+      );
+      setOpening(false);
+    }
+  }
+
+  return (
+    <Bubble
+      from="agent"
+      footer={
+        onTrySample ? (
+          <button
+            type="button"
+            className="bubble-action"
+            disabled={opening}
+            onClick={() => void trySample(onTrySample)}
+          >
+            {opening ? "Opening the sample farm…" : "Try a sample farm"}
+          </button>
+        ) : undefined
+      }
+    >
+      <p>{greeting}</p>
+      {onTrySample && (
+        <p className="welcome-sample-note">
+          New here? The sample farm has three weeks of records to ask about.
+        </p>
+      )}
+      {failed && (
+        <p className="welcome-sample-error" role="alert">
+          {failed}
+        </p>
+      )}
+    </Bubble>
+  );
+}
+
 export default function AgentFeed({
   items,
   isLoading,
@@ -287,6 +343,7 @@ export default function AgentFeed({
   onUndo,
   onRetry,
   greeting,
+  onTrySample,
 }: {
   items: FeedItem[];
   isLoading: boolean;
@@ -296,6 +353,8 @@ export default function AgentFeed({
   onRetry: (itemId: string) => void;
   // Shown while the conversation is empty; null until the farm has loaded.
   greeting: string | null;
+  // Offered on an empty farm's welcome; null when there is nothing to offer.
+  onTrySample: (() => Promise<void>) | null;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -308,9 +367,7 @@ export default function AgentFeed({
   return (
     <div className="feed" aria-live="polite">
       {items.length === 0 && !isLoading && greeting && (
-        <Bubble from="agent">
-          <p>{greeting}</p>
-        </Bubble>
+        <WelcomeBubble greeting={greeting} onTrySample={onTrySample} />
       )}
       {items.map((item) =>
         item.kind === "farmer" ? (
@@ -333,7 +390,7 @@ export default function AgentFeed({
             </span>
             {elapsedSeconds > 8
               ? `Still working (${elapsedSeconds}s)…`
-              : "FarmMind is thinking…"}
+              : "Tilly is thinking…"}
           </p>
         </Bubble>
       )}

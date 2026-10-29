@@ -2,7 +2,12 @@ import { z } from "zod";
 import { APIConnectionTimeoutError } from "openai";
 import { LifecycleError, ValidationError } from "@/src/domain/farm-event";
 import { NotFoundError } from "@/src/application/errors";
-import { ModelConfigurationError } from "@/src/infrastructure/nebius/nebius-client";
+import {
+  ModelBudgetExceededError,
+  ModelConfigurationError,
+} from "@/src/infrastructure/nebius/nebius-client";
+import { DAILY_CAP_REPLY, tooManyRequests } from "../rate-limit";
+import { logError } from "@/src/infrastructure/request-log";
 
 export function agentErrorResponse(error: unknown): Response {
   if (error instanceof z.ZodError || error instanceof ValidationError)
@@ -19,26 +24,28 @@ export function agentErrorResponse(error: unknown): Response {
     return Response.json({ error: error.message }, { status: 404 });
   if (error instanceof LifecycleError)
     return Response.json({ error: error.message }, { status: 409 });
+  if (error instanceof ModelBudgetExceededError)
+    return tooManyRequests(error.retryAfterSeconds, DAILY_CAP_REPLY);
   if (error instanceof ModelConfigurationError) {
-    console.error("FarmMind model configuration failed", error);
+    logError("Tilly model configuration failed", error);
     return Response.json(
       {
         error:
           error.role === "extraction"
-            ? "FarmMind can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION)."
-            : "FarmMind can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
+            ? "Tilly can't read messages yet: the server has no extraction model set (NEBIUS_MODEL_EXTRACTION)."
+            : "Tilly can't answer questions or give reports yet: the server has no answer model set (NEBIUS_MODEL_ANSWER).",
       },
       { status: 500 },
     );
   }
   if (error instanceof APIConnectionTimeoutError)
     return Response.json(
-      { error: "FarmMind is taking longer than expected. Please try again." },
+      { error: "Tilly is taking longer than expected. Please try again." },
       { status: 504 },
     );
-  console.error("FarmMind agent request failed", error);
+  logError("Tilly agent request failed", error);
   return Response.json(
-    { error: "FarmMind could not process that message. Please try again." },
+    { error: "Tilly could not process that message. Please try again." },
     { status: 502 },
   );
 }

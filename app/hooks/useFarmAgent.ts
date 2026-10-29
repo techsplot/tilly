@@ -172,6 +172,21 @@ class AgentRequestError extends Error {
   }
 }
 
+// Over a rate limit (429). Not a failure of the message: Tilly says it is
+// busy in an ordinary bubble, and nothing is retried automatically.
+class BusyError extends Error {}
+
+function busyReply(text: string): FeedItem {
+  return {
+    id: newId(),
+    at: Date.now(),
+    kind: "action",
+    action: { type: "reply", text },
+    undone: false,
+    undoing: false,
+  };
+}
+
 const autoRetryDelays = [1200, 3500];
 const manualRetryCooldownMs = 10000;
 const maxManualRetryAttempts = 5;
@@ -181,7 +196,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 function isRetryableStatus(status: number): boolean {
-  return [408, 429, 502, 503, 504].includes(status);
+  return [408, 502, 503, 504].includes(status);
 }
 
 async function readErrorMessage(response: Response): Promise<string> {
@@ -197,7 +212,7 @@ async function readErrorMessage(response: Response): Promise<string> {
   } catch {
     // fall through to the generic message
   }
-  return "FarmMind could not process that message. Please try again.";
+  return "Tilly could not process that message. Please try again.";
 }
 
 async function postAgentRequest(
@@ -212,11 +227,14 @@ async function postAgentRequest(
     });
   } catch {
     throw new AgentRequestError(
-      "Network connection failed. FarmMind could not confirm whether this was saved.",
+      "Network connection failed. Tilly could not confirm whether this was saved.",
       true,
     );
   }
 
+  if (response.status === 429) {
+    throw new BusyError(await readErrorMessage(response));
+  }
   if (!response.ok) {
     throw new AgentRequestError(
       await readErrorMessage(response),
@@ -227,7 +245,7 @@ async function postAgentRequest(
   const body: unknown = await response.json();
   const parsed = agentResponseSchema.safeParse(body);
   if (!parsed.success)
-    throw new AgentRequestError("FarmMind returned invalid data.", false);
+    throw new AgentRequestError("Tilly returned invalid data.", false);
   return parsed.data.actions;
 }
 
@@ -454,6 +472,11 @@ export function useFarmAgent() {
         const actions = await postAgentRequestWithAutoRetry(request);
         await applyActions(actions);
       } catch (caughtError) {
+        if (caughtError instanceof BusyError) {
+          // The pending question, if any, is kept for the next message.
+          setFeed((prev) => [...prev, busyReply(caughtError.message)]);
+          return;
+        }
         const retryable =
           caughtError instanceof AgentRequestError
             ? caughtError.retryable
@@ -515,6 +538,13 @@ export function useFarmAgent() {
         setFeed((prev) => prev.filter((item) => item.id !== itemId));
         await applyActions(actions);
       } catch (caughtError) {
+        if (caughtError instanceof BusyError) {
+          setFeed((prev) => [
+            ...prev.filter((item) => item.id !== itemId),
+            busyReply(caughtError.message),
+          ]);
+          return;
+        }
         const message =
           caughtError instanceof Error
             ? caughtError.message
@@ -590,14 +620,8 @@ export function useFarmAgent() {
 
   // Another farm starts a new conversation: pending questions and "that
   // record" references belong to the farm they were asked about.
-  const switchFarm = useCallback(
+  const startFarmConversation = useCallback(
     async (farmId: string) => {
-      const response = await fetch("/api/farms/active", {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ farmId }),
-      });
-      if (!response.ok) throw new Error(await readErrorMessage(response));
       setActiveFarmId(farmId);
       setLastRecord(null);
       setFeed([]);
@@ -611,6 +635,32 @@ export function useFarmAgent() {
     },
     [loadFarms, refreshHistoryIfOpen],
   );
+
+  const switchFarm = useCallback(
+    async (farmId: string) => {
+      const response = await fetch("/api/farms/active", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ farmId }),
+      });
+      if (!response.ok) throw new Error(await readErrorMessage(response));
+      await startFarmConversation(farmId);
+    },
+    [startFarmConversation],
+  );
+
+  // Creates the sample farm the first time and switches to it; the server
+  // makes it the active farm.
+  const openSampleFarm = useCallback(async () => {
+    const response = await fetch("/api/farms/sample", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ currentDate: getLocalDateString() }),
+    });
+    if (!response.ok) throw new Error(await readErrorMessage(response));
+    const sample = z.object({ id: z.string() }).parse(await response.json());
+    await startFarmConversation(sample.id);
+  }, [startFarmConversation]);
 
   const addFarm = useCallback(
     async (name: string) => {
@@ -649,5 +699,6 @@ export function useFarmAgent() {
     undo,
     switchFarm,
     addFarm,
+    openSampleFarm,
   };
 }

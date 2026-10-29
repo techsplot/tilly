@@ -77,7 +77,7 @@ export default function ChatHeader({
       </span>
       <div className="chat-title">
         <h1>{farmName}</h1>
-        <p>FarmMind · your farm&apos;s memory</p>
+        <p>Tilly · your farm&apos;s memory</p>
       </div>
       <div className="menu-anchor">
         <button

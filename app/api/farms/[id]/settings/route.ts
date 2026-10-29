@@ -6,6 +6,7 @@ import {
   findFarmVoiceSettings,
   updateFarmVoiceSettings,
 } from "@/src/infrastructure/db/farm-event-repository";
+import { logError } from "@/src/infrastructure/request-log";
 
 const voiceSettingsSchema = z.object({
   wakeWord: wakeWordSchema,
@@ -29,7 +30,7 @@ export async function GET(
     const settings = await findFarmVoiceSettings(getDb(), id, sessionId);
     return settings ? Response.json(settings) : notFound();
   } catch (error) {
-    console.error("Load voice settings failed", error);
+    logError("Load voice settings failed", error);
     return Response.json(
       { error: "Voice settings could not be loaded." },
       { status: 500 },
@@ -72,7 +73,7 @@ export async function PATCH(
     );
     return settings ? Response.json(settings) : notFound();
   } catch (error) {
-    console.error("Save voice settings failed", error);
+    logError("Save voice settings failed", error);
     return Response.json(
       { error: "Voice settings could not be saved." },
       { status: 500 },

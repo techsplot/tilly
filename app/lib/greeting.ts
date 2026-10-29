@@ -51,7 +51,7 @@ function describe(record: GreetingRecord, now: Date): string {
 }
 
 /**
- * FarmMind's opening message: a greeting for the farmer's time of day that
+ * Tilly's opening message: a greeting for the farmer's time of day that
  * names the farm and, when there is one, the last thing recorded there.
  */
 export function buildGreeting(
@@ -62,7 +62,7 @@ export function buildGreeting(
   // The default name reads badly in a sentence ("on My Farm").
   const farm = farmName === "My Farm" ? "your farm" : farmName;
   if (!lastRecord) {
-    return `${salutation(now)} I'm FarmMind. Tell me what happened on ${farm} today, in your own words, and I'll keep the record.`;
+    return `${salutation(now)} I'm Tilly. Tell me what happened on ${farm} today, in your own words, and I'll keep the record.`;
   }
   return `${salutation(now)} The last thing you recorded on ${farm} was ${describe(lastRecord, now)}. What did you do today?`;
 }

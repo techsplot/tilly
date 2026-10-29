@@ -12,7 +12,8 @@ export function formatDate(isoDate: string | null): string {
 }
 
 const WAKE_WORD_LABELS: Record<string, string> = {
-  "hey farmmind": "Hey FarmMind",
+  "hey tilly": "Hey Tilly",
+  "ok tilly": "OK Tilly",
   "ok farm": "OK Farm",
   "hey farm": "Hey Farm",
 };

@@ -2,18 +2,22 @@
 
 import { type FormEvent, useState } from "react";
 import type { FarmSummary } from "@/app/hooks/useFarmAgent";
+import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 
 export default function FarmsPanel({
   farms,
   activeFarmId,
   onSwitch,
   onAdd,
+  onTrySample,
 }: {
   farms: FarmSummary[];
   activeFarmId: string | undefined;
   onSwitch: (farmId: string) => Promise<void>;
   onAdd: (name: string) => Promise<void>;
+  onTrySample: () => Promise<void>;
 }) {
+  const sampleFarm = farms.find((farm) => farm.name === SAMPLE_FARM_NAME);
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -90,6 +94,23 @@ export default function FarmsPanel({
           </button>
         </div>
       </form>
+
+      {!sampleFarm && (
+        <div className="sample-farm">
+          <button
+            type="button"
+            className="secondary-button"
+            disabled={busy}
+            onClick={() => void run(onTrySample)}
+          >
+            Try a sample farm
+          </button>
+          <p className="drawer-note">
+            A farm with three weeks of planting, weeding, spraying and harvest
+            records, to see what Tilly can answer.
+          </p>
+        </div>
+      )}
 
       {error && (
         <p className="drawer-error" role="alert">

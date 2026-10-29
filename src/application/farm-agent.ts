@@ -37,6 +37,7 @@ import {
 } from "../infrastructure/db/farm-event-repository";
 import type { FarmEventRow } from "../infrastructure/db/schema";
 import type { FarmMemory } from "../domain/farm-memory";
+import { logError } from "../infrastructure/request-log";
 
 // The partial event known before the agent asked its one question, so the
 // pending note can be saved with gaps (rule 10) without a second model call.
@@ -251,7 +252,7 @@ async function loadFarmMemoryQuietly(
   try {
     return await loadFarmMemory(db, farmId, currentDate);
   } catch (error) {
-    console.error("FarmMind memory load failed", error);
+    logError("Tilly memory load failed", error);
     return { fields: [], recentEvents: [] };
   }
 }

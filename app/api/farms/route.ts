@@ -10,6 +10,7 @@ import {
   findLatestRecord,
   listFarmsBySession,
 } from "@/src/infrastructure/db/farm-event-repository";
+import { logError } from "@/src/infrastructure/request-log";
 
 // GET /api/farms - List the session's farms, which one is active, and its
 // latest record for the greeting. A first visit creates the session and its
@@ -35,7 +36,7 @@ export async function GET(request: Request): Promise<Response> {
       response.headers.set("Set-Cookie", cookies.join(", "));
     return response;
   } catch (error) {
-    console.error("List farms failed", error);
+    logError("List farms failed", error);
     return Response.json({ error: "Failed to list farms." }, { status: 500 });
   }
 }
@@ -88,7 +89,7 @@ export async function POST(request: Request): Promise<Response> {
 
     return response;
   } catch (error) {
-    console.error("Create farm failed", error);
+    logError("Create farm failed", error);
     return Response.json({ error: "Failed to create farm." }, { status: 500 });
   }
 }

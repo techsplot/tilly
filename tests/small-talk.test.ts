@@ -5,7 +5,10 @@ describe("classifySmallTalk", () => {
   it.each([
     ["hello", "greeting"],
     ["Hi!", "greeting"],
-    ["Good morning FarmMind", "greeting"],
+    ["Good morning Tilly", "greeting"],
+    ["hi Tilly", "greeting"],
+    ["Hey farm", "greeting"],
+    ["thanks Tilly", "thanks"],
     ["hello there", "greeting"],
     ["Hello, how are you?", "greeting"],
     ["whatsup", "greeting"],

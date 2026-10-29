@@ -320,6 +320,18 @@ p {
   font-weight: 400;
 }
 
+.welcome-sample-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.welcome-sample-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
 .bubble-action-done {
   display: inline-flex;
   align-items: center;
@@ -710,6 +722,42 @@ p {
 
 .primary-button:disabled {
   opacity: 0.55;
+}
+
+.secondary-button {
+  background: transparent;
+  border: 1px solid var(--green);
+  border-radius: 999px;
+  color: var(--green-dark);
+  font-weight: 700;
+  min-height: 48px;
+  padding: 12px 22px;
+}
+
+.secondary-button:hover:not(:disabled) {
+  background: var(--soft-green);
+}
+
+.secondary-button:disabled {
+  opacity: 0.55;
+}
+
+.sample-farm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.welcome-sample-note {
+  color: var(--muted);
+  font-size: 13px;
+  margin-top: 6px;
+}
+
+.welcome-sample-error {
+  color: var(--danger);
+  font-size: 13px;
+  margin-top: 6px;
 }
 
 .drawer input[type="text"] {

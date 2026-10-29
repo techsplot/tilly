@@ -21,26 +21,23 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Reads the pnpm version from "packageManager" in package.json.
-      - uses: pnpm/action-setup@v4
-
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-          cache: pnpm
+          cache: npm
 
-      - run: pnpm install --frozen-lockfile
+      - run: npm ci
 
       - name: Typecheck
-        run: pnpm exec tsc --noEmit
+        run: npm run typecheck
 
       - name: Lint
-        run: pnpm lint
+        run: npm run lint
 
       # Tests use an in-memory PGlite database and mock Nebius, so no
       # secrets or network services are needed.
       - name: Test
-        run: pnpm test
+        run: npm test
 
       - name: Production build
-        run: pnpm exec next build
+        run: npm run build
