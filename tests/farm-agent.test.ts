@@ -1136,6 +1136,15 @@ describe("question phrasing helpers", () => {
     );
   });
 
+  it("does not ask about a date the farmer already gave", () => {
+    expect(
+      buildFollowUpQuestion(
+        "Got it, weeding. Which crop was it, and was it today?",
+        ["crop"],
+      ),
+    ).toBe("Got it. Can you tell me which crop?");
+  });
+
   it("prefers the model's phrasing when present", () => {
     expect(
       buildFollowUpQuestion("Got it, spraying. Which field was it?", ["field"]),

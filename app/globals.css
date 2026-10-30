@@ -332,6 +332,58 @@ p {
   margin-top: 6px;
 }
 
+.welcome-examples {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+/* Tappable example messages, styled like a farmer's own bubble. */
+.example-chip {
+  background: var(--bubble-farmer);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.35;
+  min-height: 36px;
+  padding: 7px 12px;
+  text-align: left;
+}
+
+.example-chip:hover,
+.example-chip:focus-visible {
+  border-color: var(--green);
+}
+
+.welcome-sample {
+  border-top: 1px solid var(--line);
+  margin-top: 12px;
+  padding-top: 10px;
+}
+
+.sample-button {
+  background: var(--green);
+  border: 0;
+  border-radius: 18px;
+  color: white;
+  font-size: 15px;
+  font-weight: 700;
+  min-height: 40px;
+  padding: 8px 16px;
+}
+
+.sample-button:hover,
+.sample-button:focus-visible {
+  background: var(--green-dark);
+}
+
+.sample-button:disabled {
+  background: var(--muted);
+}
+
 .bubble-action-done {
   display: inline-flex;
   align-items: center;
