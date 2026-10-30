@@ -87,6 +87,19 @@ const agentActionSchema = z.discriminatedUnion("type", [
     citedRecords: z.array(citedRecordSchema),
   }),
   z.object({
+    type: z.literal("guidance"),
+    text: z.string(),
+    sources: z.array(
+      z.object({
+        id: z.number(),
+        title: z.string(),
+        url: z.string(),
+        domain: z.string(),
+      }),
+    ),
+    citedRecords: z.array(citedRecordSchema),
+  }),
+  z.object({
     type: z.literal("briefing"),
     text: z.string(),
     suggestions: z.array(suggestionSchema),

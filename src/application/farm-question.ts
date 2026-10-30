@@ -100,7 +100,7 @@ function formatCitedRecord(record: {
   return parts.join(" · ");
 }
 
-function formatRecordsForModel(
+export function formatRecordsForModel(
   records: {
     id: string;
     activity: string;

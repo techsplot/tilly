@@ -19,6 +19,7 @@ import { resetRequestLimits } from "../app/api/rate-limit";
 import {
   logError,
   noteModelCall,
+  noteSearchCall,
   withRequestLog,
 } from "../src/infrastructure/request-log";
 
@@ -84,6 +85,7 @@ describe("request log", () => {
       models: ["extraction", "answer"],
       modelCalls: 3,
       thinkingRetry: true,
+      searchCalls: 0,
     });
     for (const secret of [FARMER_TEXT, "Riverside", SESSION, IP]) {
       expect(line).not.toContain(secret);
@@ -115,6 +117,16 @@ describe("request log", () => {
     const errorLines = loggedLines(error).join("\n");
     expect(errorLines).toContain("Tilly agent request failed");
     expect(errorLines).not.toContain(FARMER_TEXT);
+  });
+
+  it("counts web searches", async () => {
+    await withRequestLog("/test", async () => {
+      noteSearchCall();
+      return new Response(null, { status: 204 });
+    });
+    expect(JSON.parse(loggedLines(info)[0]!)).toMatchObject({
+      searchCalls: 1,
+    });
   });
 
   it("does not count a thinking call from the start as a retry", async () => {

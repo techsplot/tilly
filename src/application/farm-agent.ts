@@ -26,6 +26,11 @@ import {
   generateReport,
   type CitedRecord,
 } from "./farm-question";
+import { answerGuidance, type GuidanceSource } from "./farm-guidance";
+import {
+  isTavilyConfigured,
+  TavilyUnavailableError,
+} from "../infrastructure/tavily/tavily-client";
 import {
   findFirstOwnedActiveEvent,
   findNudgeCandidate,
@@ -100,6 +105,12 @@ export type AgentAction =
   | { type: "question"; text: string; pending: Pending }
   | { type: "reply"; text: string }
   | { type: "answer"; text: string; citedRecords: CitedRecord[] }
+  | {
+      type: "guidance";
+      text: string;
+      sources: GuidanceSource[];
+      citedRecords: CitedRecord[];
+    }
   | { type: "briefing"; text: string; suggestions: Suggestion[] }
   | { type: "reminder-set"; reminderId: string; text: string }
   | {
@@ -144,6 +155,10 @@ const GAP_LEFT_AS_IS_REPLY = "OK, I'll leave that record as it is for now.";
 const CORRECTION_QUESTION = "What should I change it to?";
 const CORRECTION_NOT_UNDERSTOOD_REPLY =
   "I didn't catch what to change, so I left that record as it was.";
+const HELP_REPLY =
+  "I keep track of your farm activities and can answer questions about what you've recorded. For general farming advice, I recommend consulting with local agricultural experts or extension services.";
+const SEARCH_UNAVAILABLE_REPLY =
+  "I can't look that up right now. Your local extension officer is the best person to ask.";
 
 export function parseYesNo(message: string): "yes" | "no" | null {
   const normalized = message
@@ -605,13 +620,31 @@ async function routeInteraction(
     ];
   }
   if (interaction.intent === "help") {
-    // Conceptual/general questions - provide helpful explanation
-    return [
-      {
-        type: "reply",
-        text: "I keep track of your farm activities and can answer questions about what you've recorded. For general farming advice, I recommend consulting with local agricultural experts or extension services.",
-      },
-    ];
+    // General farming questions: cited guidance from trusted sources when
+    // Tavily is configured, otherwise the fixed reply.
+    if (!isTavilyConfigured()) return [{ type: "reply", text: HELP_REPLY }];
+    try {
+      const result = await answerGuidance(
+        db,
+        farmId,
+        message,
+        (interaction.filter as QuestionFilter | null | undefined) ?? null,
+      );
+      return result.kind === "guidance"
+        ? [
+            {
+              type: "guidance",
+              text: result.text,
+              sources: result.sources,
+              citedRecords: result.citedRecords,
+            },
+          ]
+        : [{ type: "reply", text: result.text }];
+    } catch (error) {
+      if (!(error instanceof TavilyUnavailableError)) throw error;
+      logError("Guidance search failed", error);
+      return [{ type: "reply", text: SEARCH_UNAVAILABLE_REPLY }];
+    }
   }
   if (interaction.intent === "reminder") {
     if (!interaction.reminder) {
@@ -751,7 +784,11 @@ async function handlePendingClarification(
     return [ended, ...(await applyDelete(db, farmId, extendedRecentIds))];
   // A question asked instead of an answer ("when did I last spray?") is
   // answered after the note's receipt; it used to be dropped.
-  if (interaction.intent === "question" || interaction.intent === "report")
+  if (
+    interaction.intent === "question" ||
+    interaction.intent === "report" ||
+    interaction.intent === "help"
+  )
     return [
       ended,
       ...(await routeInteraction(

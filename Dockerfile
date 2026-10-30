@@ -23,10 +23,11 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-# The node image ships an unprivileged "node" user. There is no public/
-# folder yet; copy it here too if one is added.
+# The node image ships an unprivileged "node" user. public/ holds the
+# service worker (sw.js); standalone output does not include it.
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
+COPY --from=build --chown=node:node /app/public ./public
 
 USER node
 EXPOSE 3000
