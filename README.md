@@ -128,6 +128,19 @@ Working today:
   receipts are spoken as sentences ("Recorded: spraying, today, morning"),
   without Undo buttons, cited records, or suggestions. With talk back off,
   voice behaves as described above.
+- **Natural voice with Deepgram (optional).** When the server has
+  `DEEPGRAM_API_KEY`, Tilly hears and speaks through Deepgram instead of
+  the browser: the mic streams live to Deepgram's Nova-3 model, which sends
+  words as they are heard and marks when the farmer has finished, and
+  replies are spoken in an Aura-2 voice (`aura-2-helena-en`, or
+  `DEEPGRAM_VOICE`). This works in any browser with a microphone, including
+  Firefox, and avoids networks where the browser's speech service does not
+  answer. The key stays on the server: `POST /api/voice/token` grants the
+  browser a 60-second token to open the stream, and `POST /api/voice/speak`
+  returns the reply's audio. Both have their own rate limit, separate from
+  messages. **Deepgram hears everything said while the mic is on**, and
+  receives the reply text to speak. Without the key, everything falls back
+  to the browser's own speech services as described above.
 - **Multiple farms.** A farmer can add farms and switch between them, or
   name one in a message ("I weeded at River Farm"); code checks the name
   against the farms that browser owns, and asks when it is unknown or

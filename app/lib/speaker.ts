@@ -29,9 +29,10 @@ export interface SpeakerOptions {
 }
 
 // Chrome sometimes never fires `end`, which would leave the conversation
-// waiting forever, so every utterance also gets a generous deadline.
-const BASE_DEADLINE_MS = 3000;
-const DEADLINE_MS_PER_CHARACTER = 90;
+// waiting forever, so every utterance also gets a generous deadline. The
+// base allows for a natural voice being downloaded before it plays.
+const BASE_DEADLINE_MS = 5000;
+const DEADLINE_MS_PER_CHARACTER = 100;
 
 function defaultSchedule(callback: () => void, ms: number): () => void {
   const id = setTimeout(callback, ms);
@@ -94,8 +95,14 @@ export class Speaker {
     utterance.onend = finish;
     utterance.onerror = finish;
     this.current = utterance;
+    // Past the deadline the voice is silenced too, so it can never talk
+    // over the mic reopening.
     this.cancelDeadline = this.schedule(
-      finish,
+      () => {
+        if (finished || this.current !== utterance) return;
+        this.options.synthesis.cancel();
+        finish();
+      },
       BASE_DEADLINE_MS + text.length * DEADLINE_MS_PER_CHARACTER,
     );
     this.options.synthesis.speak(utterance);

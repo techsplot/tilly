@@ -1,12 +1,32 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createDeepgramRecognition } from "@/app/lib/deepgram-recognition";
 import {
   getRecognitionConstructor,
   VoiceController,
   type VoiceMode,
   type VoiceState,
 } from "@/app/lib/voice-controller";
+
+// "deepgram" when the server has a Deepgram key; otherwise the browser's
+// own speech services.
+export type VoiceProvider = "deepgram" | "browser";
+
+function hasMediaRecorder(): boolean {
+  return (
+    typeof MediaRecorder !== "undefined" &&
+    Boolean(navigator.mediaDevices?.getUserMedia)
+  );
+}
+
+async function fetchListenToken(): Promise<string> {
+  const response = await fetch("/api/voice/token", { method: "POST" });
+  if (!response.ok) throw new Error("No voice token.");
+  const body = (await response.json()) as { accessToken?: unknown };
+  if (typeof body.accessToken !== "string") throw new Error("No voice token.");
+  return body.accessToken;
+}
 
 // A short rising tone so the farmer knows the wake word was heard without
 // looking at the screen.
@@ -33,10 +53,12 @@ export function useVoiceInput({
   mode,
   wakeWord,
   onTranscript,
+  provider,
 }: {
   mode: VoiceMode;
   wakeWord: string;
   onTranscript: (text: string, mode: VoiceMode) => void;
+  provider: VoiceProvider;
 }) {
   const [supported, setSupported] = useState(false);
   const [state, setState] = useState<VoiceState>("idle");
@@ -51,7 +73,10 @@ export function useVoiceInput({
   }, [onTranscript]);
 
   useEffect(() => {
-    const Recognition = getRecognitionConstructor(window);
+    const Recognition =
+      provider === "deepgram" && hasMediaRecorder()
+        ? createDeepgramRecognition(fetchListenToken)
+        : getRecognitionConstructor(window);
     if (!Recognition) return;
     setSupported(true);
     const controller = new VoiceController({
@@ -68,11 +93,11 @@ export function useVoiceInput({
       controller.stop();
       controllerRef.current = null;
     };
-  }, []);
+  }, [provider]);
 
   useEffect(() => {
     controllerRef.current?.configure(mode, wakeWord);
-  }, [mode, wakeWord, supported]);
+  }, [mode, wakeWord, supported, provider]);
 
   const toggle = useCallback(() => {
     const controller = controllerRef.current;

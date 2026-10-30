@@ -2,7 +2,7 @@
 
 import { type FormEvent, useEffect, useRef } from "react";
 import { useSpeaker } from "@/app/hooks/useSpeaker";
-import { useVoiceInput } from "@/app/hooks/useVoiceInput";
+import { useVoiceInput, type VoiceProvider } from "@/app/hooks/useVoiceInput";
 import { displayWakeWord } from "@/app/lib/format";
 import type { SpokenReply } from "@/app/lib/spoken-reply";
 import type { VoiceMode } from "@/app/lib/voice-controller";
@@ -52,6 +52,7 @@ export default function MessageBar({
   onOpenVoiceSettings,
   talkBack,
   reply,
+  voiceProvider,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -63,6 +64,7 @@ export default function MessageBar({
   onOpenVoiceSettings: () => void;
   talkBack: boolean;
   reply: SpokenReply | null;
+  voiceProvider: VoiceProvider;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const busyRef = useRef(busy);
@@ -77,7 +79,7 @@ export default function MessageBar({
     busyRef.current = busy;
   }, [busy]);
 
-  const speaker = useSpeaker();
+  const speaker = useSpeaker(voiceProvider);
   const conversing = talkBack && speaker.supported;
   const conversingRef = useRef(conversing);
   useEffect(() => {
@@ -86,6 +88,7 @@ export default function MessageBar({
 
   const voice = useVoiceInput({
     mode: voiceMode,
+    provider: voiceProvider,
     wakeWord,
     onTranscript: (text, from) => {
       // With talk back on, a spoken message is a turn in a conversation:

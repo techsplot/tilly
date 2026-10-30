@@ -8,6 +8,7 @@ import Drawer from "@/app/components/Drawer";
 import FarmHistory from "@/app/components/FarmHistory";
 import FarmsPanel from "@/app/components/FarmsPanel";
 import MessageBar from "@/app/components/MessageBar";
+import type { VoiceProvider } from "@/app/hooks/useVoiceInput";
 import ReminderBanner, {
   type DueReminder,
 } from "@/app/components/ReminderBanner";
@@ -50,6 +51,7 @@ export default function HomePage() {
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [talkBack, setTalkBack] = useState(true);
   const [talkBackSupported, setTalkBackSupported] = useState(false);
+  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>("browser");
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
   const reply = useMemo(() => latestReply(agent.feed), [agent.feed]);
@@ -61,6 +63,17 @@ export default function HomePage() {
     } catch {
       // Storage can be blocked; talk back stays on for this visit.
     }
+    // Deepgram's speech services when the server has a key; the browser's
+    // own otherwise, including when this check fails.
+    void fetch("/api/voice/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { provider?: unknown } | null) => {
+        if (body?.provider === "deepgram") {
+          setVoiceProvider("deepgram");
+          setTalkBackSupported(true);
+        }
+      })
+      .catch(() => {});
   }, []);
 
   useEffect(() => {
@@ -297,6 +310,7 @@ export default function HomePage() {
         onOpenVoiceSettings={() => openDrawer("voice")}
         talkBack={talkBack}
         reply={reply}
+        voiceProvider={voiceProvider}
       />
 
       {drawer && (
