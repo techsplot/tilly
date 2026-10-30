@@ -1,11 +1,16 @@
 "use client";
 
 import { type FormEvent, useEffect, useRef } from "react";
+import { useSpeaker } from "@/app/hooks/useSpeaker";
 import { useVoiceInput } from "@/app/hooks/useVoiceInput";
 import { displayWakeWord } from "@/app/lib/format";
+import type { SpokenReply } from "@/app/lib/spoken-reply";
 import type { VoiceMode } from "@/app/lib/voice-controller";
 
 const LONG_PRESS_MS = 600;
+// A short gap after Tilly stops talking so the mic does not catch the tail
+// of her own voice.
+const RELISTEN_DELAY_MS = 300;
 
 function MicIcon() {
   return (
@@ -45,6 +50,8 @@ export default function MessageBar({
   voiceMode,
   wakeWord,
   onOpenVoiceSettings,
+  talkBack,
+  reply,
 }: {
   value: string;
   onChange: (value: string) => void;
@@ -54,20 +61,41 @@ export default function MessageBar({
   voiceMode: VoiceMode;
   wakeWord: string;
   onOpenVoiceSettings: () => void;
+  talkBack: boolean;
+  reply: SpokenReply | null;
 }) {
   const inputRef = useRef<HTMLInputElement | null>(null);
   const busyRef = useRef(busy);
   const pressTimerRef = useRef<number | null>(null);
   const longPressedRef = useRef(false);
+  // Set when a spoken message is sent with talk back on: Tilly's reply to
+  // it is read aloud, then the mic reopens.
+  const awaitingReplyRef = useRef(false);
+  const relistenTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     busyRef.current = busy;
   }, [busy]);
 
+  const speaker = useSpeaker();
+  const conversing = talkBack && speaker.supported;
+  const conversingRef = useRef(conversing);
+  useEffect(() => {
+    conversingRef.current = conversing;
+  }, [conversing]);
+
   const voice = useVoiceInput({
     mode: voiceMode,
     wakeWord,
     onTranscript: (text, from) => {
+      // With talk back on, a spoken message is a turn in a conversation:
+      // it goes straight to Tilly, and listening pauses until she answers.
+      if (conversingRef.current && !busyRef.current) {
+        if (from === "wakeWord") voice.stop();
+        awaitingReplyRef.current = true;
+        onSend(text);
+        return;
+      }
       // Direct mode: the farmer reviews the words before sending. Wake word
       // mode is hands-free, so the command goes straight to Tilly unless
       // it is still answering, in which case it waits in the input.
@@ -79,6 +107,42 @@ export default function MessageBar({
       onSend(text);
     },
   });
+  const { speak, cancel: cancelSpeech } = speaker;
+  const { start: startListening } = voice;
+
+  // Once Tilly has answered a spoken turn, say the answer, then listen again.
+  useEffect(() => {
+    if (busy || !awaitingReplyRef.current) return;
+    awaitingReplyRef.current = false;
+    const relisten = () => {
+      relistenTimerRef.current = window.setTimeout(() => {
+        relistenTimerRef.current = null;
+        startListening();
+      }, RELISTEN_DELAY_MS);
+    };
+    if (reply) speak(reply.text, relisten);
+    else relisten();
+  }, [busy, reply, speak, startListening]);
+
+  useEffect(
+    () => () => {
+      if (relistenTimerRef.current !== null) {
+        window.clearTimeout(relistenTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  // Ends the conversation: Tilly stops talking and the mic stays closed.
+  function endConversation() {
+    awaitingReplyRef.current = false;
+    if (relistenTimerRef.current !== null) {
+      window.clearTimeout(relistenTimerRef.current);
+      relistenTimerRef.current = null;
+    }
+    cancelSpeech();
+    voice.stop();
+  }
 
   const hasText = value.trim().length > 0;
   const showMic = voice.supported && !hasText;
@@ -108,7 +172,7 @@ export default function MessageBar({
     clearPress();
     pressTimerRef.current = window.setTimeout(() => {
       longPressedRef.current = true;
-      voice.stop();
+      endConversation();
       onOpenVoiceSettings();
     }, LONG_PRESS_MS);
   }
@@ -119,14 +183,26 @@ export default function MessageBar({
       longPressedRef.current = false;
       return;
     }
+    if (
+      speaker.speaking ||
+      awaitingReplyRef.current ||
+      relistenTimerRef.current !== null
+    ) {
+      endConversation();
+      return;
+    }
     voice.toggle();
   }
 
   const status = voice.error
     ? { text: voice.error, alert: true }
-    : voice.listening && voiceMode === "wakeWord"
-      ? { text: "Hands-free is on. Tap the mic to stop.", alert: false }
-      : null;
+    : speaker.speaking
+      ? { text: "Tilly is talking… Tap the mic to stop.", alert: false }
+      : voice.listening && voiceMode === "wakeWord"
+        ? { text: "Hands-free is on. Tap the mic to stop.", alert: false }
+        : voice.listening && conversing
+          ? { text: "Talking with Tilly. Tap the mic to stop.", alert: false }
+          : null;
 
   return (
     <div className="composer">
@@ -157,18 +233,20 @@ export default function MessageBar({
         {showMic ? (
           <button
             type="button"
-            className={`action-button mic-button mic-${voice.state}`}
+            className={`action-button mic-button mic-${speaker.speaking ? "activated" : voice.state}`}
             onClick={handleMicClick}
             onPointerDown={handlePressStart}
             onPointerUp={clearPress}
             onPointerLeave={clearPress}
             onContextMenu={(event) => event.preventDefault()}
             aria-label={
-              voice.listening
-                ? "Stop listening"
-                : voiceMode === "wakeWord"
-                  ? `Start hands-free listening for ${displayWakeWord(wakeWord)}`
-                  : "Speak a message"
+              speaker.speaking
+                ? "Stop Tilly talking"
+                : voice.listening
+                  ? "Stop listening"
+                  : voiceMode === "wakeWord"
+                    ? `Start hands-free listening for ${displayWakeWord(wakeWord)}`
+                    : "Speak a message"
             }
             aria-pressed={voice.listening}
             title="Tap to speak. Hold for voice settings."

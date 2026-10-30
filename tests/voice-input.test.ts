@@ -121,6 +121,29 @@ describe("voice controller", () => {
       expect(voice.errors.at(-1)).toContain("didn't hear anything");
       expect(voice.states.at(-1)).toBe("error");
     });
+
+    it("gives up when the speech service never answers", () => {
+      const voice = setup("direct");
+      voice.controller.start();
+      expect(voice.timers.map((timer) => timer.ms)).toEqual([15000]);
+
+      voice.runTimers();
+      expect(voice.errors.at(-1)).toContain("isn't responding");
+      expect(voice.states.at(-1)).toBe("error");
+      expect(voice.controller.listening).toBe(false);
+      expect(latest().aborted).toBe(true);
+    });
+
+    it("restarts the wait on every result and clears it when done", () => {
+      const voice = setup("direct");
+      voice.controller.start();
+      latest().speak("I weeded", false);
+      expect(voice.timers).toHaveLength(1);
+
+      latest().speak("I weeded the north field");
+      expect(voice.timers).toHaveLength(0);
+      expect(voice.errors.filter(Boolean)).toEqual([]);
+    });
   });
 
   describe("wake word mode", () => {

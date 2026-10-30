@@ -90,6 +90,8 @@ export function useVoiceInput({
     controller.start();
   }, []);
 
+  // Reopens the mic without a tap, after Tilly finishes speaking.
+  const start = useCallback(() => controllerRef.current?.start(), []);
   const stop = useCallback(() => controllerRef.current?.stop(), []);
 
   return {
@@ -99,6 +101,7 @@ export function useVoiceInput({
     error,
     listening: state === "listening" || state === "activated",
     toggle,
+    start,
     stop,
   };
 }

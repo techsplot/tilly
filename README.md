@@ -97,7 +97,20 @@ Working today:
   speech service (Google in Chrome, Microsoft in Edge) hears everything
   said while the mic is on.** Wake word matching runs in the browser, so
   only the words after the wake word are sent to Tilly. Browsers without
-  speech recognition, such as Firefox, show only the Send button.
+  speech recognition, such as Firefox, show only the Send button. If the
+  speech service hears nothing back for 15 seconds, tap to speak stops and
+  says so instead of looking stuck on "listening".
+- **Talk back (voice conversation).** On by default, per device, in Voice
+  settings. A spoken message is sent as soon as the farmer pauses, Tilly
+  reads her reply aloud with the browser's own speech synthesis (a voice
+  installed on the device where there is one, so it works offline), then
+  the mic opens again for the answer. One tap starts the conversation; a
+  tap while Tilly listens or talks ends it, and silence ends it with "I
+  didn't hear anything". Hands-free works the same, with listening paused
+  while Tilly speaks so she does not hear herself. Only the reply is read:
+  receipts are spoken as sentences ("Recorded: spraying, today, morning"),
+  without Undo buttons, cited records, or suggestions. With talk back off,
+  voice behaves as described above.
 - **Multiple farms.** A farmer can add farms and switch between them, or
   name one in a message ("I weeded at River Farm"); code checks the name
   against the farms that browser owns, and asks when it is unknown or

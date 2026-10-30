@@ -59,6 +59,12 @@ export function getRecognitionConstructor(
 const NETWORK_RETRY_DELAYS = [1000, 2000, 4000];
 const ARMED_TIMEOUT_MS = 8000;
 const ACTIVATED_MS = 700;
+// Some networks let the browser's speech service hear speech but never
+// answer: no text, no error, no end. Tap to speak gives up after this long
+// without a result instead of looking stuck on "listening".
+const NO_RESULT_TIMEOUT_MS = 15000;
+const NOT_RESPONDING_MESSAGE =
+  "Voice isn't responding. Check your connection, or type instead.";
 
 const ERROR_MESSAGES: Record<string, string> = {
   "not-allowed":
@@ -95,6 +101,7 @@ export class VoiceController {
   private armed = false;
   private cancelArmed: (() => void) | null = null;
   private cancelPending: (() => void) | null = null;
+  private cancelWatchdog: (() => void) | null = null;
 
   constructor(options: VoiceControllerOptions) {
     this.options = options;
@@ -123,6 +130,7 @@ export class VoiceController {
   stop(): void {
     this.wantListening = false;
     this.disarm();
+    this.clearWatchdog();
     this.cancelPending?.();
     this.cancelPending = null;
     const recognition = this.recognition;
@@ -147,6 +155,7 @@ export class VoiceController {
     recognition.onerror = (event) => this.handleError(event.error);
     recognition.onend = () => this.handleEnd();
     this.recognition = recognition;
+    this.resetWatchdog();
     try {
       recognition.start();
     } catch {
@@ -155,6 +164,7 @@ export class VoiceController {
   }
 
   private handleResult(event: RecognitionEventLike): void {
+    this.resetWatchdog();
     if (this.networkFailures > 0) {
       this.networkFailures = 0;
       this.options.onError(null);
@@ -222,6 +232,20 @@ export class VoiceController {
     }, ACTIVATED_MS);
   }
 
+  private resetWatchdog(): void {
+    this.clearWatchdog();
+    if (this.mode !== "direct") return;
+    this.cancelWatchdog = this.schedule(() => {
+      this.cancelWatchdog = null;
+      if (this.wantListening) this.fail(NOT_RESPONDING_MESSAGE);
+    }, NO_RESULT_TIMEOUT_MS);
+  }
+
+  private clearWatchdog(): void {
+    this.cancelWatchdog?.();
+    this.cancelWatchdog = null;
+  }
+
   private disarm(): void {
     this.armed = false;
     this.cancelArmed?.();
@@ -246,6 +270,7 @@ export class VoiceController {
   }
 
   private retryAfter(delay: number): void {
+    this.clearWatchdog();
     const recognition = this.recognition;
     this.recognition = null;
     if (recognition) {
@@ -260,6 +285,7 @@ export class VoiceController {
 
   private handleEnd(): void {
     this.recognition = null;
+    this.clearWatchdog();
     // Browsers end continuous sessions after a pause; keep listening until
     // the farmer stops.
     if (this.wantListening && this.mode === "wakeWord") {
