@@ -242,9 +242,59 @@ describe("farm agent service", () => {
     expect(second[0].event.missingFields).toContain("field");
     expect(second[0].event.status).toBe("confirmed");
     expect(second[1]).toEqual({
-      type: "reply",
-      text: "I saved it without the field. Tell me the field any time and I'll add it.",
+      type: "question",
+      text: "I saved it without the field. If you know it, just tell me.",
+      pending: { kind: "gap", eventId: expect.any(String) },
     });
+  });
+
+  it("fills the gap when the detail comes next, and leaves it for thanks", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent({ eventDate: "2026-10-12" })]),
+    );
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed the maize",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+    const saved = await handleFarmerMessage(db, farmId, {
+      message: "not sure",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+    const hint = saved[1];
+    if (hint?.type !== "question") throw new Error("expected gap hint");
+
+    // Thanks is not the field: no model call, the gap stays.
+    const thanks = await handleFarmerMessage(db, farmId, {
+      message: "thanks",
+      currentDate: "2026-10-12",
+      pending: hint.pending,
+      recentEventIds: [],
+    });
+    expect(thanks).toEqual([{ type: "reply", text: "You're welcome." }]);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+
+    // Said later, the field corrects that record instead of a new note.
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        sprayEvent({ field: "Back Field", eventDate: "2026-10-12" }),
+      ]),
+    );
+    const filled = await handleFarmerMessage(db, farmId, {
+      message: "it was the back field",
+      currentDate: "2026-10-12",
+      pending: hint.pending,
+      recentEventIds: [],
+    });
+    expect(filled[0]?.type).toBe("corrected");
+    const timeline = await listTimeline(db, farmId);
+    expect(timeline).toHaveLength(1);
+    expect(timeline[0]?.field).toBe("Back Field");
+    expect(timeline[0]?.missingFields).not.toContain("field");
   });
 
   it("a question-like reply saves with gaps instead of asking again (finding 3, 10)", async () => {
@@ -270,7 +320,10 @@ describe("farm agent service", () => {
     });
 
     expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "question",
+    ]);
   });
 
   it("saves a note with two complete activities as two recorded actions (finding 1, 14)", async () => {
@@ -377,7 +430,7 @@ describe("farm agent service", () => {
     expect(second.map((action) => action.type)).toEqual([
       "recorded",
       "recorded",
-      "reply",
+      "question",
     ]);
     const timeline = await listTimeline(db, farmId);
     expect(timeline.map((event) => event.activity).sort()).toEqual([
@@ -411,7 +464,10 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
-    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "question",
+    ]);
     if (second[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(second[0].event.activity).toBe("spraying");
     expect(second[0].event.missingFields).toContain("field");
@@ -436,7 +492,10 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
-    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
+    expect(second.map((action) => action.type)).toEqual([
+      "recorded",
+      "question",
+    ]);
     if (second[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(second[0].event.activity).toBe("spraying");
     expect(second[0].event.missingFields).toContain("field");
@@ -873,9 +932,42 @@ describe("farm agent service", () => {
     expect(timeline[0]?.crop).toBe("maize");
     expect(timeline[0]?.field).toBeNull();
     expect(second.at(-1)).toEqual({
-      type: "reply",
-      text: "I saved it without the field. Tell me the field any time and I'll add it.",
+      type: "question",
+      text: "I saved it without the field. If you know it, just tell me.",
+      pending: { kind: "gap", eventId: expect.any(String) },
     });
+  });
+
+  it("sends the recent chat to the model and keeps only grounded values from it", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([completeEvent({ field: "Hill Farm" })]),
+    );
+    const conversation = [
+      { from: "farmer" as const, text: "I sprayed the maize" },
+      {
+        from: "tilly" as const,
+        text: "Which field: Hill Farm or River Field?",
+      },
+    ];
+
+    const actions = await handleFarmerMessage(db, farmId, {
+      message: "I weeded that crop today",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+      conversation,
+    });
+
+    const body = JSON.parse(mockCreate.mock.calls[0]![0].messages[1].content);
+    expect(body.recentConversation).toEqual(conversation);
+    // The crop the farmer said earlier is kept; a field only Tilly named,
+    // which the farm does not have, is not, so Tilly asks for it.
+    expect(actions[0]?.type).toBe("question");
+    if (actions[0]?.type !== "question") throw new Error("expected question");
+    if (actions[0].pending.kind !== "clarification")
+      throw new Error("expected clarification");
+    expect(actions[0].pending.event.crop).toBe("maize");
+    expect(actions[0].pending.event.field).toBeNull();
   });
 
   it("drops a filler word the model returns as the crop", async () => {
@@ -910,8 +1002,9 @@ describe("farm agent service", () => {
     expect(second[0].event.crop).toBeNull();
     expect(second[0].event.missingFields).toContain("crop");
     expect(second[1]).toEqual({
-      type: "reply",
-      text: "I saved it without the crop. Tell me the crop any time and I'll add it.",
+      type: "question",
+      text: "I saved it without the crop. If you know it, just tell me.",
+      pending: { kind: "gap", eventId: expect.any(String) },
     });
   });
 

@@ -2,6 +2,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { z } from "zod";
+import { recentConversation } from "@/app/lib/conversation";
+import type { ConversationTurn } from "@/src/domain/conversation";
 import { farmEventSchema } from "@/src/domain/farm-event";
 
 const savedFarmEventSchema = farmEventSchema.extend({
@@ -139,7 +141,59 @@ type AgentRequestPayload = {
   currentDate: string;
   pending?: Pending | undefined;
   recentEventIds: string[];
+  conversation: ConversationTurn[];
 };
+
+const CHAT_KEY_PREFIX = "tilly.chat.";
+const MAX_SAVED_CHAT_ITEMS = 40;
+
+const savedChatSchema = z.array(
+  z.discriminatedUnion("kind", [
+    z.object({
+      id: z.string(),
+      at: z.number(),
+      kind: z.literal("farmer"),
+      text: z.string(),
+    }),
+    z.object({
+      id: z.string(),
+      at: z.number(),
+      kind: z.literal("action"),
+      action: agentActionSchema,
+      undone: z.boolean(),
+      undoing: z.boolean(),
+    }),
+  ]),
+);
+
+// Failed sends are not kept: their retry belongs to the visit they failed in.
+function saveChat(farmId: string, feed: FeedItem[]): void {
+  try {
+    const kept = feed
+      .filter((item) => item.kind !== "failed")
+      .slice(-MAX_SAVED_CHAT_ITEMS)
+      .map((item) =>
+        item.kind === "action" ? { ...item, undoing: false } : item,
+      );
+    window.localStorage.setItem(
+      `${CHAT_KEY_PREFIX}${farmId}`,
+      JSON.stringify(kept),
+    );
+  } catch {
+    // Storage can be full or blocked; the chat still works for this visit.
+  }
+}
+
+function loadChat(farmId: string): FeedItem[] {
+  try {
+    const raw = window.localStorage.getItem(`${CHAT_KEY_PREFIX}${farmId}`);
+    if (!raw) return [];
+    const parsed = savedChatSchema.safeParse(JSON.parse(raw));
+    return parsed.success ? parsed.data : [];
+  } catch {
+    return [];
+  }
+}
 
 // `at` is when the item joined the feed, shown as the bubble's time.
 export type FeedItem =
@@ -339,6 +393,29 @@ export function useFarmAgent() {
   const activeFarmName =
     farms.find((farm) => farm.id === activeFarmId)?.name ?? "My Farm";
 
+  // The chat is kept in this browser, per farm, so a reload does not wipe
+  // the conversation Tilly reads for context. The farm it belongs to is
+  // tracked so one farm's chat is never saved under another's key. The save
+  // effect runs before the load effect: on a farm change it sees the old
+  // owner and skips, then the load claims the new farm.
+  const feedFarmRef = useRef<string | undefined>(undefined);
+
+  useEffect(() => {
+    if (!activeFarmId || feedFarmRef.current !== activeFarmId) return;
+    saveChat(activeFarmId, feed);
+  }, [activeFarmId, feed]);
+
+  useEffect(() => {
+    if (!activeFarmId || feedFarmRef.current === activeFarmId) return;
+    const firstLoad = feedFarmRef.current === undefined;
+    feedFarmRef.current = activeFarmId;
+    const saved = loadChat(activeFarmId);
+    // On the first load, a message sent before the farm arrived belongs to
+    // this farm and is kept after the saved chat. A farm switch has already
+    // cleared the feed, so it simply shows that farm's chat.
+    setFeed((current) => (firstLoad ? [...saved, ...current] : saved));
+  }, [activeFarmId]);
+
   // Farm identity loads first and on its own: a new session's first call
   // creates its cookies, so nothing may race it, and settings must not wait
   // for the full history.
@@ -489,6 +566,7 @@ export function useFarmAgent() {
         currentDate: getLocalDateString(),
         pending,
         recentEventIds,
+        conversation: recentConversation(feed),
       };
 
       setFeed((prev) => [
@@ -535,7 +613,14 @@ export function useFarmAgent() {
         setIsLoading(false);
       }
     },
-    [applyActions, isLoading, pending, recentEventIds, refreshHistoryIfOpen],
+    [
+      applyActions,
+      feed,
+      isLoading,
+      pending,
+      recentEventIds,
+      refreshHistoryIfOpen,
+    ],
   );
 
   const retry = useCallback(

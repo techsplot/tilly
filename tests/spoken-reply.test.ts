@@ -121,6 +121,7 @@ describe("latestReply", () => {
         message: "I sprayed",
         currentDate: "2026-10-30",
         recentEventIds: [],
+        conversation: [],
       },
       retryable: true,
       attempts: 0,
