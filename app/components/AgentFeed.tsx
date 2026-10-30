@@ -174,6 +174,40 @@ function ActionBubble({
       </Bubble>
     );
   }
+  if (action.type === "guidance") {
+    return (
+      <Bubble from="agent" at={item.at}>
+        <p>{action.text}</p>
+        {action.citedRecords.length > 0 && (
+          <div className="cited-records">
+            <p className="cited-label">From your records</p>
+            <ul>
+              {action.citedRecords.map((record) => (
+                <li key={record.id}>{citedRecordLabel(record)}</li>
+              ))}
+            </ul>
+          </div>
+        )}
+        <div className="guidance-sources">
+          <p className="cited-label">From trusted sources</p>
+          <ul>
+            {action.sources.map((source) => (
+              <li key={source.id}>
+                <a href={source.url} target="_blank" rel="noopener noreferrer">
+                  {source.title}
+                </a>{" "}
+                <span className="guidance-domain">{source.domain}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+        <p className="guidance-note">
+          General guidance, not a diagnosis. For a serious problem, ask your
+          local extension officer.
+        </p>
+      </Bubble>
+    );
+  }
   if (action.type === "briefing") {
     return (
       <Bubble from="agent" at={item.at}>

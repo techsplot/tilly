@@ -7,6 +7,7 @@ import type { ModelRole } from "./nebius/nebius-client";
 
 type RequestLog = {
   calls: Array<{ role: ModelRole; thinking: boolean }>;
+  searchCalls: number;
 };
 
 const storage = new AsyncLocalStorage<RequestLog>();
@@ -16,11 +17,17 @@ export function noteModelCall(role: ModelRole, thinking: boolean): void {
   storage.getStore()?.calls.push({ role, thinking });
 }
 
+// Called by the Tavily client for every search. The query is never logged.
+export function noteSearchCall(): void {
+  const log = storage.getStore();
+  if (log) log.searchCalls += 1;
+}
+
 export async function withRequestLog(
   route: string,
   handler: () => Promise<Response>,
 ): Promise<Response> {
-  const log: RequestLog = { calls: [] };
+  const log: RequestLog = { calls: [], searchCalls: 0 };
   const start = Date.now();
   let status = 500;
   try {
@@ -41,6 +48,7 @@ export async function withRequestLog(
         thinkingRetry:
           extraction.some((call) => !call.thinking) &&
           extraction.some((call) => call.thinking),
+        searchCalls: log.searchCalls,
       }),
     );
   }

@@ -368,10 +368,44 @@ p {
 }
 
 .cited-records ul,
+.guidance-sources ul,
 .suggestions {
   list-style: none;
   margin: 4px 0 0;
   padding: 0;
+}
+
+/* Web guidance is set apart from farm records: a bordered box, not a rule. */
+.guidance-sources {
+  background: var(--cream);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  margin-top: 8px;
+  padding: 6px 8px;
+}
+
+.guidance-sources li {
+  font-size: 13px;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.guidance-sources li + li {
+  margin-top: 4px;
+}
+
+.guidance-sources a {
+  color: var(--green-dark);
+}
+
+.guidance-domain,
+.guidance-note {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.guidance-note {
+  margin-top: 6px;
 }
 
 .suggestions {

@@ -120,7 +120,10 @@ question that is not about their specific records ("what is the difference
 between farm and field?", "how do I plant maize?", "what is weeding?");
 otherwise "other" (greetings, anything else not covered). For "correct", set correction.changes to only the
 fields the farmer wants changed, and leave events empty. For "delete",
-"help", or "other", leave events and correction empty. For "question" or
+"help", or "other", leave events and correction empty. For "help", you may
+set filter.crop and filter.activity when the question names them ("how do I
+control aphids on tomatoes?" sets crop "tomatoes"); leave the other filter
+fields null. For "question" or
 "report", set filter to the structured filter with only the fields mentioned
 (activity, crop, field, dateFrom, dateTo, reportType). If the question does
 not specify any particular criteria (like "what did I do today?", "show me

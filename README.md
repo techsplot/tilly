@@ -160,6 +160,19 @@ Working today:
   so Tilly needs a connection. The wake word works only while Tilly is open
   on screen, because phones stop the microphone when the screen locks.
   Speech recognition works in Chrome on Android; on iPhone it is limited.
+- **Cited farming guidance (Tavily).** A general question such as "How do
+  I control aphids on tomatoes?" used to get a fixed "ask an expert" reply.
+  Now Tilly searches trusted agricultural sites with Tavily (FAO, CABI,
+  PlantwisePlus, IITA, CIMMYT, UC IPM, and university extension services),
+  and Nemotron writes a short answer from those pages only. The reply shows
+  the farmer's related records ("From your records") separately from the
+  linked sources ("From trusted sources"), with a note that it is general
+  guidance, not a diagnosis. Code decides which links appear: the model
+  names source numbers, and only numbers matching a real Tavily result
+  survive, so it cannot invent a URL. **Only the farmer's question is sent
+  to Tavily, never farm names, fields, or records.** Guidance is never
+  saved as a farm record. Without `TAVILY_API_KEY`, or if Tavily fails,
+  Tilly gives the old reply.
 
 Not built yet: a farm recovery code (deferred) and evaluation results
 (Phase 13). Known gaps in SMS: the Twilio webhooks do not verify Twilio's
@@ -290,6 +303,8 @@ Set these on the host or endpoint at runtime:
 | `TWILIO_AUTH_TOKEN`       | no       | Twilio auth token                                                |
 | `TWILIO_PHONE_NUMBER`     | no       | Number SMS reminders are sent from                               |
 | `APP_URL`                 | no       | Public HTTPS URL, for Twilio delivery-status callbacks           |
+| `TAVILY_API_KEY`          | no       | Tavily key for cited farming guidance                            |
+| `TAVILY_DAILY_LIMIT`      | no       | Tavily searches per UTC day across all users (default 200)       |
 
 The browser reads the push public key from `GET /api/push/public-key` at
 runtime, so it never has to be baked into the image.
