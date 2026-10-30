@@ -57,6 +57,23 @@ Working today:
   question: it either answers it (merged and saved at once, gaps and all)
   or turns out to be a new note, in which case the pending one is saved
   with its gaps first. A farmer can correct a gap at any time by saying so.
+  A reply that does not answer ("thank you", "I don't know", "skip") saves
+  the note with its gap without a model call, and a filler word the model
+  returns as a crop or field ("yes", "thank you") is dropped: live testing
+  once saved "thank you" as a crop. When the saved note still has a gap,
+  Tilly says so ("I saved it without the crop. If you know it, just tell
+  me.") and the next message, if it gives the detail ("it was maize"),
+  fills that record instead of starting a new one. Receipts show the crop.
+- **Conversation memory.** Each message carries the last six turns of the
+  chat (what the farmer said and Tilly's replies in plain words, at most
+  300 characters a turn), so Nemotron can read "I sprayed there too" or
+  "what about the cassava?" against what was just said. The chat is
+  context, not a source of facts: only the new message is recorded, and a
+  crop or field taken from the chat is kept only if the farmer said it or
+  it already exists on the farm, so Tilly's own words cannot invent a
+  name. The chat is kept in the browser per farm (last 40 messages, failed
+  sends left out), so a reload does not wipe it; nothing new is stored on
+  the server. Farm records remain the long-term memory.
 - **Gap reminders.** `POST /api/agent/nudge` surfaces at most one light
   reminder per session for an agent-saved record with a gap, using fixed
   wording, no more than once every 24 hours; answering it corrects that
@@ -97,7 +114,33 @@ Working today:
   speech service (Google in Chrome, Microsoft in Edge) hears everything
   said while the mic is on.** Wake word matching runs in the browser, so
   only the words after the wake word are sent to Tilly. Browsers without
-  speech recognition, such as Firefox, show only the Send button.
+  speech recognition, such as Firefox, show only the Send button. If the
+  speech service hears nothing back for 15 seconds, tap to speak stops and
+  says so instead of looking stuck on "listening".
+- **Talk back (voice conversation).** On by default, per device, in Voice
+  settings. A spoken message is sent as soon as the farmer pauses, Tilly
+  reads her reply aloud with the browser's own speech synthesis (a voice
+  installed on the device where there is one, so it works offline), then
+  the mic opens again for the answer. One tap starts the conversation; a
+  tap while Tilly listens or talks ends it, and silence ends it with "I
+  didn't hear anything". Hands-free works the same, with listening paused
+  while Tilly speaks so she does not hear herself. Only the reply is read:
+  receipts are spoken as sentences ("Recorded: spraying, today, morning"),
+  without Undo buttons, cited records, or suggestions. With talk back off,
+  voice behaves as described above.
+- **Natural voice with Deepgram (optional).** When the server has
+  `DEEPGRAM_API_KEY`, Tilly hears and speaks through Deepgram instead of
+  the browser: the mic streams live to Deepgram's Nova-3 model, which sends
+  words as they are heard and marks when the farmer has finished, and
+  replies are spoken in an Aura-2 voice (`aura-2-helena-en`, or
+  `DEEPGRAM_VOICE`). This works in any browser with a microphone, including
+  Firefox, and avoids networks where the browser's speech service does not
+  answer. The key stays on the server: `POST /api/voice/token` grants the
+  browser a 60-second token to open the stream, and `POST /api/voice/speak`
+  returns the reply's audio. Both have their own rate limit, separate from
+  messages. **Deepgram hears everything said while the mic is on**, and
+  receives the reply text to speak. Without the key, everything falls back
+  to the browser's own speech services as described above.
 - **Multiple farms.** A farmer can add farms and switch between them, or
   name one in a message ("I weeded at River Farm"); code checks the name
   against the farms that browser owns, and asks when it is unknown or

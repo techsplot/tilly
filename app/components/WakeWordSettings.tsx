@@ -9,11 +9,16 @@ export type VoiceSettings = { wakeWord: string; wakeWordEnabled: boolean };
 export default function WakeWordSettings({
   current,
   onSave,
+  talkBack,
+  talkBackSupported,
 }: {
   current: VoiceSettings;
-  onSave: (settings: VoiceSettings) => Promise<void>;
+  onSave: (settings: VoiceSettings, talkBack: boolean) => Promise<void>;
+  talkBack: boolean;
+  talkBackSupported: boolean;
 }) {
   const [enabled, setEnabled] = useState(current.wakeWordEnabled);
+  const [speakReplies, setSpeakReplies] = useState(talkBack);
   const [wakeWord, setWakeWord] = useState(current.wakeWord);
   const [custom, setCustom] = useState(
     !PRESET_WAKE_WORDS.includes(current.wakeWord),
@@ -33,7 +38,10 @@ export default function WakeWordSettings({
     setSaving(true);
     setError(null);
     try {
-      await onSave({ wakeWord: parsed.data, wakeWordEnabled: enabled });
+      await onSave(
+        { wakeWord: parsed.data, wakeWordEnabled: enabled },
+        speakReplies,
+      );
     } catch (caughtError) {
       setError(
         caughtError instanceof Error
@@ -78,6 +86,23 @@ export default function WakeWordSettings({
             </small>
           </span>
         </label>
+        {talkBackSupported && (
+          <label className="choice">
+            <input
+              type="checkbox"
+              checked={speakReplies}
+              onChange={(event) => setSpeakReplies(event.target.checked)}
+            />
+            <span>
+              <strong>Talk back</strong>
+              <small>
+                Tilly reads her replies aloud, then listens for your answer, so
+                you can keep talking without touching the screen. Spoken
+                messages are sent as soon as you pause.
+              </small>
+            </span>
+          </label>
+        )}
         <p className="settings-note">
           Your browser turns speech into text using its own service (Google in
           Chrome, Microsoft in Edge), which hears everything said while the mic

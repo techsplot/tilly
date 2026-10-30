@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { classifySmallTalk } from "../src/domain/small-talk";
+import {
+  classifySmallTalk,
+  isFillerValue,
+  isNonAnswer,
+} from "../src/domain/small-talk";
 
 describe("classifySmallTalk", () => {
   it.each([
@@ -33,4 +37,42 @@ describe("classifySmallTalk", () => {
   ])("leaves %j for the model", (message) => {
     expect(classifySmallTalk(message)).toBeNull();
   });
+});
+
+describe("isNonAnswer", () => {
+  it.each([
+    "thank you",
+    "Thanks Tilly!",
+    "I don't know",
+    "I dont know.",
+    "not sure",
+    "skip",
+    "never mind",
+    "",
+  ])("%j does not answer the question", (reply) => {
+    expect(isNonAnswer(reply)).toBe(true);
+  });
+
+  it.each(["maize", "the north field", "yes", "no", "ok", "yesterday"])(
+    "%j may answer it",
+    (reply) => {
+      expect(isNonAnswer(reply)).toBe(false);
+    },
+  );
+});
+
+describe("isFillerValue", () => {
+  it.each(["thank you", "yes", "OK", "no idea", "n/a", "unknown"])(
+    "%j is never a crop or field",
+    (value) => {
+      expect(isFillerValue(value)).toBe(true);
+    },
+  );
+
+  it.each(["maize", "North Field", "cassava", "Back Garden"])(
+    "%j is a real name",
+    (value) => {
+      expect(isFillerValue(value)).toBe(false);
+    },
+  );
 });

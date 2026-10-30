@@ -17,7 +17,7 @@ const ipLimiter = new RateLimiter(RATE_LIMITS.ip);
 
 // Requests with no session cookie share one bucket, so dropping the cookie
 // does not reset the limit.
-function sessionKey(request: Request): string {
+export function sessionKey(request: Request): string {
   const match = request.headers
     .get("cookie")
     ?.match(/(?:^|;\s*)fieldledger_session=([^;]+)/);
@@ -25,7 +25,7 @@ function sessionKey(request: Request): string {
 }
 
 // The first x-forwarded-for value is the client as the proxy saw it.
-function ipKey(request: Request): string {
+export function ipKey(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for")?.split(",")[0];
   return forwarded?.trim() || "unknown";
 }
@@ -63,4 +63,24 @@ export function resetRequestLimits(): void {
   sessionLimiter.clear();
   ipLimiter.clear();
   modelCallBudget.reset();
+}
+
+// Voice has its own, larger budget: each spoken turn makes two requests (a
+// listening token and the spoken reply) and must not use up the farmer's
+// message limit.
+const voiceSessionLimiter = new RateLimiter({ perMinute: 30, perHour: 400 });
+const voiceIpLimiter = new RateLimiter({ perMinute: 60, perHour: 800 });
+
+export function limitVoiceRequest(
+  request: Request,
+  now: number = Date.now(),
+): Response | null {
+  const result = checkLimits(
+    [
+      [voiceSessionLimiter, sessionKey(request)],
+      [voiceIpLimiter, ipKey(request)],
+    ],
+    now,
+  );
+  return result.allowed ? null : tooManyRequests(result.retryAfterSeconds);
 }

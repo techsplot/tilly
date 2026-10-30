@@ -16,6 +16,10 @@ import {
   type FarmMemory,
 } from "../domain/farm-memory";
 import { mentionedActivities } from "../domain/activity-words";
+import {
+  keepConversationValue,
+  type ConversationTurn,
+} from "../domain/conversation";
 import { looksLikeQuestion } from "../domain/question-shape";
 import { resolveWeekdayDate } from "../domain/weekday-date";
 import {
@@ -142,6 +146,15 @@ and name the options in followUpQuestion; the application does not block the
 save on this. Cite the memory event ids used for each memory-sourced value.
 Only resolve a field or crop from recentEvents, and cite the event ids you
 used.
+
+recentConversation, when present, is the last few turns of the chat, oldest
+first ("farmer" is the farmer, "tilly" is you). Use it only to understand what
+farmerMessage refers to: "the same field", "there too", "and the cassava",
+"what about last week?". A field or crop the farmer named in an earlier turn,
+or that you named in a receipt, may be used for such a reference; set its
+source to "message". Only farmerMessage says what to record, correct, or ask
+now: never record an activity from an earlier turn again, and never take a
+value from the conversation when farmerMessage does not refer back to it.
 `;
 
 // Finding 17: an invalid model time is dropped, never a 502. When
@@ -256,6 +269,7 @@ export async function extractFarmEvent(
   currentDate: string,
   clarifications?: { question: string; answer: string }[],
   farmMemory: FarmMemory = { fields: [], recentEvents: [] },
+  conversation: ConversationTurn[] = [],
 ): Promise<FarmInteractionResult> {
   const client = createNebiusClient("extraction");
 
@@ -274,10 +288,12 @@ export async function extractFarmEvent(
     farmerMessage: string;
     clarifications?: { question: string; answer: string }[];
     farmMemory?: FarmMemory;
+    recentConversation?: ConversationTurn[];
   } = { currentDate, farmerMessage };
   if (clarifications) userContent.clarifications = clarifications;
   if (farmMemory.fields.length > 0 || farmMemory.recentEvents.length > 0)
     userContent.farmMemory = farmMemory;
+  if (conversation.length > 0) userContent.recentConversation = conversation;
 
   const model = getNebiusModel("extraction");
   async function requestInteraction(thinking: boolean) {
@@ -371,6 +387,20 @@ export async function extractFarmEvent(
     return {
       ...event,
       ...verified.event,
+      crop: keepConversationValue(
+        "crop",
+        verified.event.crop,
+        farmerWords,
+        conversation,
+        farmMemory,
+      ),
+      field: keepConversationValue(
+        "field",
+        verified.event.field,
+        farmerWords,
+        conversation,
+        farmMemory,
+      ),
       ...resolveTimeFields(event.eventTime ?? null, event.timeOfDay ?? null),
       ...(weekdayDate ? { eventDate: weekdayDate } : {}),
       resolvedFromMemory: verified.resolvedFromMemory,

@@ -5,6 +5,7 @@ import {
   sessionCookieHeader,
 } from "@/src/application/farm-context";
 import { handleFarmerMessage } from "@/src/application/farm-agent";
+import { conversationSchema } from "@/src/domain/conversation";
 import {
   farmActivitySchema,
   farmTimeOfDaySchema,
@@ -76,6 +77,7 @@ const agentRequestSchema = z.object({
     .array(eventIdSchema)
     .max(20, "Maximum 20 recent event ids allowed")
     .default([]),
+  conversation: conversationSchema.default([]),
 });
 
 function isWithinOneDay(clientDate: string, serverDate: string): boolean {

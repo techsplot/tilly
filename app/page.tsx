@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useFarmAgent } from "@/app/hooks/useFarmAgent";
 import AgentFeed from "@/app/components/AgentFeed";
 import ChatHeader, { type MenuChoice } from "@/app/components/ChatHeader";
@@ -8,6 +8,7 @@ import Drawer from "@/app/components/Drawer";
 import FarmHistory from "@/app/components/FarmHistory";
 import FarmsPanel from "@/app/components/FarmsPanel";
 import MessageBar from "@/app/components/MessageBar";
+import type { VoiceProvider } from "@/app/hooks/useVoiceInput";
 import ReminderBanner, {
   type DueReminder,
 } from "@/app/components/ReminderBanner";
@@ -17,6 +18,7 @@ import WakeWordSettings, {
 import NotificationsSettings from "@/app/components/NotificationsSettings";
 import { buildGreeting } from "@/app/lib/greeting";
 import { subscribeToPush } from "@/app/lib/push";
+import { latestReply } from "@/app/lib/spoken-reply";
 import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
 
@@ -28,6 +30,10 @@ const DRAWER_TITLES: Record<MenuChoice, string> = {
 };
 
 const REMINDER_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
+
+// Talk back is a choice about this device (speakers, a quiet office), so it
+// is kept in the browser rather than with the farm. On unless turned off.
+const TALK_BACK_KEY = "tilly.talkBack";
 
 export default function HomePage() {
   const agent = useFarmAgent();
@@ -43,8 +49,32 @@ export default function HomePage() {
   const [currentPhone, setCurrentPhone] = useState<string | null>(null);
   const [dueReminders, setDueReminders] = useState<DueReminder[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [talkBack, setTalkBack] = useState(true);
+  const [talkBackSupported, setTalkBackSupported] = useState(false);
+  const [voiceProvider, setVoiceProvider] = useState<VoiceProvider>("browser");
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
+  const reply = useMemo(() => latestReply(agent.feed), [agent.feed]);
+
+  useEffect(() => {
+    setTalkBackSupported("speechSynthesis" in window);
+    try {
+      setTalkBack(window.localStorage.getItem(TALK_BACK_KEY) !== "off");
+    } catch {
+      // Storage can be blocked; talk back stays on for this visit.
+    }
+    // Deepgram's speech services when the server has a key; the browser's
+    // own otherwise, including when this check fails.
+    void fetch("/api/voice/config")
+      .then((response) => (response.ok ? response.json() : null))
+      .then((body: { provider?: unknown } | null) => {
+        if (body?.provider === "deepgram") {
+          setVoiceProvider("deepgram");
+          setTalkBackSupported(true);
+        }
+      })
+      .catch(() => {});
+  }, []);
 
   useEffect(() => {
     if (!activeFarmId) return;
@@ -137,8 +167,17 @@ export default function HomePage() {
     setHistoryOpen(false);
   }, [setHistoryOpen]);
 
-  async function saveVoiceSettings(settings: VoiceSettings) {
+  async function saveVoiceSettings(
+    settings: VoiceSettings,
+    speakReplies: boolean,
+  ) {
     if (!activeFarmId) throw new Error("Your farm is still loading.");
+    setTalkBack(speakReplies);
+    try {
+      window.localStorage.setItem(TALK_BACK_KEY, speakReplies ? "on" : "off");
+    } catch {
+      // Storage can be blocked; the choice still applies for this visit.
+    }
     const response = await fetch(`/api/farms/${activeFarmId}/settings`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -272,6 +311,9 @@ export default function HomePage() {
         voiceMode={voiceSettings?.wakeWordEnabled ? "wakeWord" : "direct"}
         wakeWord={wakeWord}
         onOpenVoiceSettings={() => openDrawer("voice")}
+        talkBack={talkBack}
+        reply={reply}
+        voiceProvider={voiceProvider}
       />
 
       {drawer && (
@@ -310,6 +352,8 @@ export default function HomePage() {
               <WakeWordSettings
                 current={voiceSettings}
                 onSave={saveVoiceSettings}
+                talkBack={talkBack}
+                talkBackSupported={talkBackSupported}
               />
             ) : (
               <p
