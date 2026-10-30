@@ -33,6 +33,7 @@ vi.mock("../src/infrastructure/tavily/tavily-client", async (original) => ({
 }));
 
 import { handleFarmerMessage } from "../src/application/farm-agent";
+import { recordAgentEvent } from "../src/application/persist-farm-event";
 import { TavilyUnavailableError } from "../src/infrastructure/tavily/tavily-client";
 import * as schema from "../src/infrastructure/db/schema";
 import { createTestFarm as createFarm } from "./test-helpers";
@@ -144,5 +145,83 @@ describe("farm agent: general farming questions", () => {
     expect(await ask()).toEqual([
       { type: "reply", text: expect.stringContaining("can't look that up") },
     ]);
+  });
+});
+
+describe("farm agent: question filters", () => {
+  let client: PGlite;
+  let db: ReturnType<typeof drizzle<typeof schema>>;
+
+  beforeAll(async () => {
+    client = new PGlite();
+    db = drizzle(client, { schema });
+    await migrate(db, { migrationsFolder: "drizzle" });
+  }, 180000);
+
+  afterAll(async () => {
+    await client.close();
+  });
+
+  it("filters by the activity the farmer named when the model drops it", async () => {
+    mockCreate.mockReset();
+    const farmId = await createFarm(db);
+    const save = (activity: "spraying" | "weeding", eventDate: string) =>
+      recordAgentEvent(db, farmId, {
+        final: {
+          activity,
+          crop: "cassava",
+          field: "River Plot",
+          eventDate,
+          quantity: null,
+          unit: null,
+          status: "confirmed",
+          missingFields: [],
+          sourceText: "seed",
+        },
+        currentDate: "2026-10-30",
+      });
+    const { event: spray } = await save("spraying", "2026-10-29");
+    await save("weeding", "2026-10-28");
+
+    // Live behaviour: intent "question" but no filter at all.
+    mockCreate
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                intent: "question",
+                events: [],
+                clarificationRequired: false,
+                clarificationQuestion: null,
+                filter: null,
+              }),
+            },
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                answer: "You last sprayed cassava on Oct 29.",
+                citedRecordIds: [spray.id],
+              }),
+            },
+          },
+        ],
+      });
+
+    await handleFarmerMessage(db, farmId, {
+      message: "When did I last spray?",
+      currentDate: "2026-10-30",
+      recentEventIds: [],
+    });
+
+    const answerPrompt = JSON.stringify(mockCreate.mock.calls[1]![0]);
+    expect(answerPrompt).toContain('\\"activity\\":\\"spraying\\"');
+    expect(answerPrompt).toContain(spray.id);
+    expect(answerPrompt).not.toContain("weeding");
   });
 });

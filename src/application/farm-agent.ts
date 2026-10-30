@@ -12,7 +12,10 @@ import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
 import { resolveFarmReference } from "./farm-resolver";
 import { classifySmallTalk, type SmallTalk } from "../domain/small-talk";
-import { namesAnotherActivity } from "../domain/activity-words";
+import {
+  mentionedActivities,
+  namesAnotherActivity,
+} from "../domain/activity-words";
 import {
   changedFields,
   correctRecordedEvent,
@@ -159,6 +162,19 @@ const HELP_REPLY =
   "I keep track of your farm activities and can answer questions about what you've recorded. For general farming advice, I recommend consulting with local agricultural experts or extension services.";
 const SEARCH_UNAVAILABLE_REPLY =
   "I can't look that up right now. Your local extension officer is the best person to ask.";
+
+// Live testing: with farm memory in the prompt, the model sometimes drops the
+// filter for "when did I last spray?", so every record reached the answer
+// model and it listed the whole month. One activity the farmer named in
+// words is applied by code when the model left it out.
+function withNamedActivity<T extends QuestionFilter>(
+  filter: T,
+  message: string,
+): T {
+  if (filter.activity) return filter;
+  const named = [...mentionedActivities(message)];
+  return named.length === 1 ? { ...filter, activity: named[0] } : filter;
+}
 
 export function parseYesNo(message: string): "yes" | "no" | null {
   const normalized = message
@@ -600,20 +616,23 @@ async function routeInteraction(
     return applyDelete(db, farmId, recentEventIds);
   if (interaction.intent === "question") {
     // Allow questions without filters - default to querying recent records
-    const filter: QuestionFilter = interaction.filter || {};
+    const filter = withNamedActivity(interaction.filter || {}, message);
     const result = await answerQuestion(db, farmId, filter);
     return [
       { type: "answer", text: result.text, citedRecords: result.citedRecords },
     ];
   }
   if (interaction.intent === "report") {
-    const filter: ReportFilter = interaction.filter
-      ? {
-          ...interaction.filter,
-          reportType:
-            (interaction.filter as ReportFilter).reportType || "summary",
-        }
-      : { reportType: "summary" };
+    const filter: ReportFilter = withNamedActivity(
+      interaction.filter
+        ? {
+            ...interaction.filter,
+            reportType:
+              (interaction.filter as ReportFilter).reportType || "summary",
+          }
+        : { reportType: "summary" },
+      message,
+    );
     const result = await generateReport(db, farmId, filter);
     return [
       { type: "answer", text: result.text, citedRecords: result.citedRecords },
