@@ -100,7 +100,18 @@ export type AgentAction =
   | { type: "question"; text: string; pending: Pending }
   | { type: "reply"; text: string }
   | { type: "answer"; text: string; citedRecords: CitedRecord[] }
-  | { type: "briefing"; text: string; suggestions: Suggestion[] };
+  | { type: "briefing"; text: string; suggestions: Suggestion[] }
+  | { type: "reminder-set"; reminderId: string; text: string }
+  | {
+      type: "reminders-list";
+      reminders: Array<{
+        id: string;
+        activity: string;
+        field: string | null;
+        crop: string | null;
+        date: string;
+      }>;
+    };
 
 export type HandleFarmerMessageInput = {
   message: string;
@@ -116,8 +127,6 @@ const NOTHING_TO_TARGET_REPLY =
   "I don't have a recent record to change. Tell me what you did.";
 const UNSUPPORTED_REPLY =
   "I can't help with that. I keep your farm records: tell me what you did, ask what you've done, or ask for a report.";
-const REMINDER_REPLY =
-  "I can't set reminders yet. For now, tell me what you did, ask what you've done, or ask for a report.";
 const SMALL_TALK_REPLIES: Record<SmallTalk, string> = {
   greeting:
     "Hello! Tell me what you did on the farm today, or ask me about your records.",
@@ -125,8 +134,8 @@ const SMALL_TALK_REPLIES: Record<SmallTalk, string> = {
   farewell: "Goodbye! Your records are saved.",
 };
 
-function unsupportedReply(message: string): string {
-  return /\bremind/i.test(message) ? REMINDER_REPLY : UNSUPPORTED_REPLY;
+function unsupportedReply(): string {
+  return UNSUPPORTED_REPLY;
 }
 const UNDERSTOOD_NOTHING_REPLY =
   "I did not understand that. Please describe a farm activity, ask a question, or request a report.";
@@ -551,6 +560,16 @@ async function routeInteraction(
     followUpQuestion?: string | null | undefined;
     correction?: { changes: Record<string, unknown> } | null | undefined;
     filter?: QuestionFilter | ReportFilter | null | undefined;
+    reminder?:
+      | {
+          activity: string;
+          field?: string | null | undefined;
+          crop?: string | null | undefined;
+          when: string;
+          message?: string | null | undefined;
+        }
+      | null
+      | undefined;
   },
   recentEventIds: string[],
 ): Promise<AgentAction[]> {
@@ -565,34 +584,79 @@ async function routeInteraction(
   if (interaction.intent === "delete")
     return applyDelete(db, farmId, recentEventIds);
   if (interaction.intent === "question") {
-    if (!interaction.filter) {
-      return [
-        { type: "reply", text: "I need to know what you're asking about." },
-      ];
-    }
-    const filter = interaction.filter as QuestionFilter;
+    // Allow questions without filters - default to querying recent records
+    const filter: QuestionFilter = interaction.filter || {};
     const result = await answerQuestion(db, farmId, filter);
     return [
       { type: "answer", text: result.text, citedRecords: result.citedRecords },
     ];
   }
   if (interaction.intent === "report") {
-    if (!interaction.filter) {
-      return [
-        {
-          type: "reply",
-          text: "I need to know what to include in the report.",
-        },
-      ];
-    }
-    const filter = interaction.filter as ReportFilter;
+    const filter: ReportFilter = interaction.filter
+      ? {
+          ...interaction.filter,
+          reportType:
+            (interaction.filter as ReportFilter).reportType || "summary",
+        }
+      : { reportType: "summary" };
     const result = await generateReport(db, farmId, filter);
     return [
       { type: "answer", text: result.text, citedRecords: result.citedRecords },
     ];
   }
+  if (interaction.intent === "help") {
+    // Conceptual/general questions - provide helpful explanation
+    return [
+      {
+        type: "reply",
+        text: "I keep track of your farm activities and can answer questions about what you've recorded. For general farming advice, I recommend consulting with local agricultural experts or extension services.",
+      },
+    ];
+  }
+  if (interaction.intent === "reminder") {
+    if (!interaction.reminder) {
+      return [
+        {
+          type: "reply",
+          text: "I need to know what to remind you about and when.",
+        },
+      ];
+    }
+    const { scheduleReminder } = await import("./reminder-service");
+    const result = await scheduleReminder(
+      db,
+      farmId,
+      {
+        activity: interaction.reminder.activity,
+        when: interaction.reminder.when,
+        field: interaction.reminder.field ?? null,
+        crop: interaction.reminder.crop ?? null,
+        message: interaction.reminder.message ?? null,
+      },
+      currentDate,
+    );
+
+    if (result.status === "error") {
+      return [{ type: "reply", text: result.message }];
+    }
+
+    // Format the reminder date nicely
+    const dateStr = formatNudgeDate(result.reminder.reminderDate);
+    const details = [result.reminder.fieldName, result.reminder.crop].filter(
+      Boolean,
+    );
+    const detailsStr = details.length > 0 ? ` ${details.join(" ")}` : "";
+
+    return [
+      {
+        type: "reminder-set",
+        reminderId: result.reminder.id,
+        text: `✓ Reminder set for ${dateStr}: ${result.reminder.activity}${detailsStr}`,
+      },
+    ];
+  }
   if (interaction.intent === "other")
-    return [{ type: "reply", text: unsupportedReply(message) }];
+    return [{ type: "reply", text: unsupportedReply() }];
   return applyRecordFlow(
     db,
     farmId,

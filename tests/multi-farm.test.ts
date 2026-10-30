@@ -35,7 +35,7 @@ describe("Multi-farm workspace support", () => {
     sessionId = `session-${Date.now()}`;
     farm1Id = await createFarm(db, sessionId, "River Farm");
     farm2Id = await createFarm(db, sessionId, "Home Plot");
-  });
+  }, 60000); // PGlite migration can be slow when competing for resources in CI
 
   describe("Farm creation and listing", () => {
     it("creates multiple farms for the same session", async () => {

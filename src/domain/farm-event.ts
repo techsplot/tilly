@@ -89,6 +89,8 @@ export const agentIntentSchema = z.enum([
   "delete",
   "question",
   "report",
+  "reminder",
+  "help",
   "other",
 ]);
 
@@ -124,6 +126,16 @@ export const farmInteractionSchema = z.object({
     })
     .nullable()
     .optional(),
+  reminder: z
+    .object({
+      activity: z.string().trim().min(1),
+      field: z.string().trim().min(1).nullable().optional(),
+      crop: z.string().trim().min(1).nullable().optional(),
+      when: z.string().trim().min(1),
+      message: z.string().trim().min(1).nullable().optional(),
+    })
+    .nullable()
+    .optional(),
   farmReference: z.string().trim().min(1).nullable().optional(),
 });
 
@@ -146,6 +158,16 @@ export const farmInteractionResultSchema = z.object({
       dateFrom: z.iso.date().nullable().optional(),
       dateTo: z.iso.date().nullable().optional(),
       reportType: reportTypeSchema.nullable().optional(),
+    })
+    .nullable()
+    .optional(),
+  reminder: z
+    .object({
+      activity: z.string().trim().min(1),
+      field: z.string().trim().min(1).nullable().optional(),
+      crop: z.string().trim().min(1).nullable().optional(),
+      when: z.string().trim().min(1),
+      message: z.string().trim().min(1).nullable().optional(),
     })
     .nullable()
     .optional(),
