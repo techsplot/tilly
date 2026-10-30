@@ -288,12 +288,23 @@ function FailedBubble({
   );
 }
 
+// One of each thing Tilly does, so a first-time farmer (or judge) sees a
+// saved record, an answer from their records, and cited guidance in three
+// taps. The first names crop, field and time, so it saves without a question.
+const EXAMPLE_MESSAGES = [
+  "I sprayed the tomatoes in the north field this morning",
+  "When did I last spray?",
+  "How do I control aphids on tomatoes?",
+];
+
 function WelcomeBubble({
   greeting,
   onTrySample,
+  onExample,
 }: {
   greeting: string;
   onTrySample: (() => Promise<void>) | null;
+  onExample: ((message: string) => void) | null;
 }) {
   const [opening, setOpening] = useState(false);
   const [failed, setFailed] = useState<string | null>(null);
@@ -314,26 +325,37 @@ function WelcomeBubble({
   }
 
   return (
-    <Bubble
-      from="agent"
-      footer={
-        onTrySample ? (
+    <Bubble from="agent">
+      <p>{greeting}</p>
+      {onExample && (
+        <div className="welcome-examples">
+          <p className="cited-label">Try saying</p>
+          {EXAMPLE_MESSAGES.map((message) => (
+            <button
+              key={message}
+              type="button"
+              className="example-chip"
+              onClick={() => onExample(message)}
+            >
+              {message}
+            </button>
+          ))}
+        </div>
+      )}
+      {onTrySample && (
+        <div className="welcome-sample">
           <button
             type="button"
-            className="bubble-action"
+            className="sample-button"
             disabled={opening}
             onClick={() => void trySample(onTrySample)}
           >
-            {opening ? "Opening the sample farm…" : "Try a sample farm"}
+            {opening ? "Opening the sample farm…" : "Explore a sample farm"}
           </button>
-        ) : undefined
-      }
-    >
-      <p>{greeting}</p>
-      {onTrySample && (
-        <p className="welcome-sample-note">
-          New here? The sample farm has three weeks of records to ask about.
-        </p>
+          <p className="welcome-sample-note">
+            Three weeks of records from a small farm, ready to ask about.
+          </p>
+        </div>
       )}
       {failed && (
         <p className="welcome-sample-error" role="alert">
@@ -353,6 +375,7 @@ export default function AgentFeed({
   onRetry,
   greeting,
   onTrySample,
+  onExample,
 }: {
   items: FeedItem[];
   isLoading: boolean;
@@ -364,6 +387,8 @@ export default function AgentFeed({
   greeting: string | null;
   // Offered on an empty farm's welcome; null when there is nothing to offer.
   onTrySample: (() => Promise<void>) | null;
+  // Sends a tapped example message; null while a message is in flight.
+  onExample: ((message: string) => void) | null;
 }) {
   const [now, setNow] = useState(Date.now());
 
@@ -376,7 +401,11 @@ export default function AgentFeed({
   return (
     <div className="feed" aria-live="polite">
       {items.length === 0 && !isLoading && greeting && (
-        <WelcomeBubble greeting={greeting} onTrySample={onTrySample} />
+        <WelcomeBubble
+          greeting={greeting}
+          onTrySample={onTrySample}
+          onExample={onExample}
+        />
       )}
       {items.map((item) =>
         item.kind === "farmer" ? (

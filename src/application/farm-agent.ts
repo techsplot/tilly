@@ -226,7 +226,9 @@ function asksForExactly(question: string, missingDetails: string[]): boolean {
   const asksMissing = missingDetails.every(
     (detail) => detailMention[detail]?.test(question) ?? false,
   );
-  const asksKnown = (["crop", "field"] as const).some(
+  // Live testing: "I weeded the north field this morning" got "Which crop
+  // was it, and was it today?", so a known date counts as known too.
+  const asksKnown = (["crop", "field", "eventDate"] as const).some(
     (detail) =>
       !missingDetails.includes(detail) && detailMention[detail]!.test(question),
   );

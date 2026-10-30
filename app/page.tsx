@@ -294,6 +294,9 @@ export default function HomePage() {
                 ? agent.openSampleFarm
                 : null
             }
+            onExample={
+              isLoading ? null : (message) => void agent.sendMessage(message)
+            }
           />
           <div ref={feedEndRef} />
         </div>
