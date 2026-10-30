@@ -15,4 +15,19 @@ coverage/
 .github/implementation-plan.md
 agent.md
 .vscode/
-scripts/
+.kiro/
+DEPLOY-NOW.md
+DEPLOY-RENDER-NOW.md
+DEPLOYMENT-CHECKLIST.md
+HACKATHON-JUDGING-GUIDE.md
+PHASE-11-*.md
+REASONING-LAYER.md
+REMINDER-FEATURES-PLAN.md
+SMS-REMINDER-IMPLEMENTATION.md
+START-PHASE-11.md
+TILLY-ARCHITECTURE-FLOW.md
+
+# Local helper scripts; the reminder job is published because the deploy
+# guide runs it with `npm run reminder-job`.
+scripts/*
+!scripts/run-reminder-job.ts

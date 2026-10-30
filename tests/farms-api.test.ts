@@ -182,6 +182,7 @@ describe("farms API", () => {
       await expect(response.json()).resolves.toEqual({
         wakeWord: "hey tilly",
         wakeWordEnabled: false,
+        phoneNumber: null,
       });
     });
 
@@ -207,6 +208,7 @@ describe("farms API", () => {
       await expect(read.json()).resolves.toEqual({
         wakeWord: "hey buddy",
         wakeWordEnabled: true,
+        phoneNumber: null,
       });
       const other = await getSettings(
         request(settingsUrl(riverId), { session: SESSION }),
@@ -280,6 +282,38 @@ describe("farms API", () => {
         params("not-a-farm"),
       );
       expect(response.status).toBe(404);
+    });
+  });
+
+  describe("phone number", () => {
+    const savePhone = (phone_number: string) =>
+      patchSettings(
+        request(`/api/farms/${homeId}/settings`, {
+          session: SESSION,
+          method: "PATCH",
+          body: { phone_number },
+        }),
+        params(homeId),
+      );
+
+    it("saves a formatted number without its separators", async () => {
+      const response = await savePhone("+1 (555) 123-4567");
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({
+        phoneNumber: "+15551234567",
+      });
+    });
+
+    it("asks for a country code when the number has no +", async () => {
+      const response = await savePhone("555-123-4567");
+      expect(response.status).toBe(400);
+      const body = (await response.json()) as { error: string };
+      expect(body.error).toMatch(/country code/i);
+    });
+
+    it("rejects a number that is too short", async () => {
+      const response = await savePhone("+1 555");
+      expect(response.status).toBe(400);
     });
   });
 });

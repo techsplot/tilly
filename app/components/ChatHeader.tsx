@@ -2,12 +2,13 @@
 
 import { type RefObject, useEffect, useRef, useState } from "react";
 
-export type MenuChoice = "records" | "farms" | "voice";
+export type MenuChoice = "records" | "farms" | "voice" | "notifications";
 
 const MENU_ITEMS: Array<{ choice: MenuChoice; label: string }> = [
   { choice: "records", label: "My records" },
   { choice: "farms", label: "Farms" },
   { choice: "voice", label: "Voice settings" },
+  { choice: "notifications", label: "Notifications" },
 ];
 
 export default function ChatHeader({

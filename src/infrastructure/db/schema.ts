@@ -59,6 +59,8 @@ export const farms = pgTable(
     sessionId: text("session_id").notNull(),
     wakeWord: text("wake_word").notNull().default("hey tilly"),
     wakeWordEnabled: boolean("wake_word_enabled").notNull().default(false),
+    phoneNumber: text("phone_number"),
+    lastActiveAt: timestamp("last_active_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -68,6 +70,7 @@ export const farms = pgTable(
       table.id,
       table.wakeWordEnabled,
     ),
+    phoneNumberIdx: index("farms_phone_number_idx").on(table.phoneNumber),
   }),
 );
 
@@ -165,6 +168,12 @@ export const reminders = pgTable(
     reminderKind: reminderKindEnum("reminder_kind").notNull(),
     deliveryAttempts: numeric("delivery_attempts").notNull().default("0"),
     lastDeliveredAt: timestamp("last_delivered_at", { withTimezone: true }),
+    deliveryMethod: text("delivery_method"),
+    carrierStatus: text("carrier_status"),
+    carrierStatusAt: timestamp("carrier_status_at", { withTimezone: true }),
+    twilioMessageSid: text("twilio_message_sid"),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    snoozedUntil: timestamp("snoozed_until", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .defaultNow()
       .notNull(),
@@ -182,6 +191,30 @@ export const reminders = pgTable(
       table.sourceEventId,
       table.reminderKind,
     ),
+    twilioSidIdx: index("reminders_twilio_sid_idx").on(table.twilioMessageSid),
+    snoozedUntilIdx: index("reminders_snoozed_until_idx").on(
+      table.snoozedUntil,
+    ),
+  }),
+);
+
+export const pushSubscriptions = pgTable(
+  "push_subscriptions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    farmId: uuid("farm_id")
+      .notNull()
+      .references(() => farms.id, { onDelete: "cascade" }),
+    endpoint: text("endpoint").notNull(),
+    keys: jsonb("keys").notNull(),
+    userAgent: text("user_agent"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .defaultNow()
+      .notNull(),
+    active: boolean("active").notNull().default(true),
+  },
+  (table) => ({
+    farmActiveIdx: index("push_subscriptions_farm_idx").on(table.farmId),
   }),
 );
 
@@ -190,3 +223,4 @@ export type FieldRow = typeof fields.$inferSelect;
 export type FarmEventRow = typeof farmEvents.$inferSelect;
 export type EventCorrectionRow = typeof eventCorrections.$inferSelect;
 export type ReminderRow = typeof reminders.$inferSelect;
+export type PushSubscriptionRow = typeof pushSubscriptions.$inferSelect;

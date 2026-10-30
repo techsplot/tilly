@@ -10,7 +10,8 @@ import {
   farmTimeOfDaySchema,
 } from "@/src/domain/farm-event";
 import { getDb } from "@/src/infrastructure/db/client";
-import { withRequestLog } from "@/src/infrastructure/request-log";
+import { recordFarmActivity } from "@/src/infrastructure/db/reminder-repository";
+import { logError, withRequestLog } from "@/src/infrastructure/request-log";
 import { limitModelRequest } from "../rate-limit";
 import { agentErrorResponse } from "./errors";
 
@@ -112,6 +113,11 @@ async function handlePost(request: Request): Promise<Response> {
   try {
     const db = getDb();
     const context = await getFarmContext(db, request);
+    // Heartbeat for Tier 0 reminder delivery. Not awaited so it cannot slow
+    // the reply, and a failed heartbeat never fails the farmer's message.
+    recordFarmActivity(db, context.farmId).catch((error: unknown) =>
+      logError("Farm activity heartbeat failed", error),
+    );
     const actions = await handleFarmerMessage(db, context.farmId, {
       ...parsed.data,
       sessionId: context.sessionId,

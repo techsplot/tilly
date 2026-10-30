@@ -24,6 +24,8 @@ export type Reminder = {
   reminderKind: ReminderKind;
   deliveryAttempts: number;
   lastDeliveredAt: Date | null;
+  acknowledgedAt: Date | null;
+  snoozedUntil: Date | null;
   createdAt: Date;
   updatedAt: Date;
 };

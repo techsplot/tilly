@@ -1,6 +1,13 @@
-import { and, eq, lte, isNull, sql, inArray } from "drizzle-orm";
+import { and, eq, lte, isNull, or, sql, inArray, desc } from "drizzle-orm";
 import type { Database } from "./farm-event-repository";
-import { reminders, farmEvents, type ReminderRow } from "./schema";
+import {
+  reminders,
+  farmEvents,
+  farms,
+  pushSubscriptions,
+  type ReminderRow,
+  type PushSubscriptionRow,
+} from "./schema";
 import type { Reminder, ReminderStatus } from "../../domain/reminder";
 
 export function toReminder(row: ReminderRow): Reminder {
@@ -17,6 +24,8 @@ export function toReminder(row: ReminderRow): Reminder {
     reminderKind: row.reminderKind,
     deliveryAttempts: Number(row.deliveryAttempts),
     lastDeliveredAt: row.lastDeliveredAt,
+    acknowledgedAt: row.acknowledgedAt,
+    snoozedUntil: row.snoozedUntil,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
@@ -123,9 +132,11 @@ export async function listFarmReminders(
 }
 
 /**
- * Find due reminders (pending, reminder_date <= currentDate).
+ * Find due reminders (pending, reminder_date <= currentDate, not snoozed).
  * Uses FOR UPDATE SKIP LOCKED to safely claim reminders for processing.
  * Returns up to `limit` reminders.
+ * Excludes snoozed reminders (snoozedUntil > now) — this covers both
+ * farmer-requested snoozes AND the 2-hour push escalation wait window.
  */
 export async function findDueReminders(
   db: Database,
@@ -139,6 +150,10 @@ export async function findDueReminders(
       and(
         eq(reminders.status, "pending"),
         lte(reminders.reminderDate, currentDate),
+        or(
+          isNull(reminders.snoozedUntil),
+          lte(reminders.snoozedUntil, new Date()),
+        ),
       ),
     )
     .orderBy(reminders.reminderDate)
@@ -282,4 +297,344 @@ export async function generateGapReminders(
   }
 
   return created;
+}
+
+// ─── Delivery Repository Functions ───────────────────────────────────────────
+
+/**
+ * Mark a reminder as having no contact method available.
+ * Sets carrier_status="no_contact_method" and increments delivery_attempts.
+ * Leaves status as "pending" — this is not a permanent failure.
+ */
+export async function markNoContactMethod(
+  db: Database,
+  reminderId: string,
+): Promise<void> {
+  await db
+    .update(reminders)
+    .set({
+      carrierStatus: "no_contact_method",
+      carrierStatusAt: sql`now()`,
+      deliveryAttempts: sql`${reminders.deliveryAttempts} + 1`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(reminders.id, reminderId));
+}
+
+/**
+ * Get the phone number for a farm, or null if not set.
+ */
+export async function getFarmPhoneNumber(
+  db: Database,
+  farmId: string,
+): Promise<string | null> {
+  const [row] = await db
+    .select({ phoneNumber: farms.phoneNumber })
+    .from(farms)
+    .where(eq(farms.id, farmId))
+    .limit(1);
+
+  return row?.phoneNumber ?? null;
+}
+
+/**
+ * Mark the farm as active now, for Tier 0 (in-app banner) delivery.
+ */
+export async function recordFarmActivity(
+  db: Database,
+  farmId: string,
+): Promise<void> {
+  await db
+    .update(farms)
+    .set({ lastActiveAt: new Date() })
+    .where(eq(farms.id, farmId));
+}
+
+/**
+ * Check if the farmer has been active in the app within the given window.
+ * Reads farms.last_active_at and returns true if it's within `withinMinutes`.
+ */
+export async function isFarmerActiveInApp(
+  db: Database,
+  farmId: string,
+  withinMinutes: number,
+): Promise<boolean> {
+  const [row] = await db
+    .select({ lastActiveAt: farms.lastActiveAt })
+    .from(farms)
+    .where(eq(farms.id, farmId))
+    .limit(1);
+
+  if (!row?.lastActiveAt) return false;
+
+  const windowMs = withinMinutes * 60 * 1000;
+  const cutoff = new Date(Date.now() - windowMs);
+  return row.lastActiveAt >= cutoff;
+}
+
+/**
+ * Get the most recent active push subscription for a farm, or null if none.
+ */
+export async function getPushSubscription(
+  db: Database,
+  farmId: string,
+): Promise<PushSubscriptionRow | null> {
+  const [row] = await db
+    .select()
+    .from(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.farmId, farmId),
+        eq(pushSubscriptions.active, true),
+      ),
+    )
+    .orderBy(desc(pushSubscriptions.createdAt))
+    .limit(1);
+
+  return row ?? null;
+}
+
+/**
+ * Save a push subscription for a farm.
+ * Upserts on (farm_id, endpoint): if the endpoint already exists for this farm,
+ * updates it to active=true; otherwise inserts a new row.
+ */
+export async function savePushSubscription(
+  db: Database,
+  farmId: string,
+  subscription: {
+    endpoint: string;
+    keys: Record<string, string>;
+    userAgent?: string | null;
+  },
+): Promise<void> {
+  // Check if this endpoint already exists for this farm
+  const [existing] = await db
+    .select({ id: pushSubscriptions.id })
+    .from(pushSubscriptions)
+    .where(
+      and(
+        eq(pushSubscriptions.farmId, farmId),
+        eq(pushSubscriptions.endpoint, subscription.endpoint),
+      ),
+    )
+    .limit(1);
+
+  if (existing) {
+    await db
+      .update(pushSubscriptions)
+      .set({
+        keys: subscription.keys,
+        userAgent: subscription.userAgent ?? null,
+        active: true,
+      })
+      .where(eq(pushSubscriptions.id, existing.id));
+  } else {
+    await db.insert(pushSubscriptions).values({
+      farmId,
+      endpoint: subscription.endpoint,
+      keys: subscription.keys,
+      userAgent: subscription.userAgent ?? null,
+      active: true,
+    });
+  }
+}
+
+/**
+ * Record that a push notification was sent for a reminder.
+ * Sets delivery_method="push", carrier_status="push_sent",
+ * and snoozed_until=now+2h to prevent immediate SMS fallback.
+ */
+export async function recordPushSent(
+  db: Database,
+  reminderId: string,
+): Promise<void> {
+  const twoHoursFromNow = new Date(Date.now() + 2 * 60 * 60 * 1000);
+  await db
+    .update(reminders)
+    .set({
+      deliveryMethod: "push",
+      carrierStatus: "push_sent",
+      carrierStatusAt: sql`now()`,
+      snoozedUntil: twoHoursFromNow,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(reminders.id, reminderId));
+}
+
+/**
+ * Store the Twilio MessageSid after a successful SMS send.
+ * Sets delivery_method="sms" and carrier_status="sent".
+ * Does NOT change `status` — that only changes when Twilio confirms delivery.
+ */
+export async function recordTwilioSid(
+  db: Database,
+  reminderId: string,
+  sid: string,
+): Promise<void> {
+  await db
+    .update(reminders)
+    .set({
+      twilioMessageSid: sid,
+      deliveryMethod: "sms",
+      carrierStatus: "sent",
+      carrierStatusAt: sql`now()`,
+      deliveryAttempts: sql`${reminders.deliveryAttempts} + 1`,
+      lastDeliveredAt: sql`now()`,
+      updatedAt: sql`now()`,
+    })
+    .where(eq(reminders.id, reminderId));
+}
+
+/**
+ * Update carrier status from a Twilio webhook callback.
+ * - "delivered" → sets status="delivered" and carrier_status="delivered"
+ * - "failed" or "undelivered" → reverts status="pending", sets carrier_status
+ * - Other values → only updates carrier_status (no status change)
+ */
+export async function updateCarrierStatus(
+  db: Database,
+  reminderId: string,
+  twilioStatus: string,
+): Promise<void> {
+  if (twilioStatus === "delivered") {
+    await db
+      .update(reminders)
+      .set({
+        status: "delivered",
+        carrierStatus: "delivered",
+        carrierStatusAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(reminders.id, reminderId));
+  } else if (twilioStatus === "failed" || twilioStatus === "undelivered") {
+    await db
+      .update(reminders)
+      .set({
+        status: "pending",
+        carrierStatus: twilioStatus,
+        carrierStatusAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(reminders.id, reminderId));
+  } else {
+    await db
+      .update(reminders)
+      .set({
+        carrierStatus: twilioStatus,
+        carrierStatusAt: sql`now()`,
+        updatedAt: sql`now()`,
+      })
+      .where(eq(reminders.id, reminderId));
+  }
+}
+
+/**
+ * Acknowledge a reminder via an inbound SMS reply ("DONE").
+ * Finds the most recent unacknowledged reminder for the farm owning that phone
+ * number and marks it as acknowledged.
+ */
+export async function acknowledgeReminderBySmsFrom(
+  db: Database,
+  phoneNumber: string,
+): Promise<void> {
+  // Find the farm with this phone number
+  const [farm] = await db
+    .select({ id: farms.id })
+    .from(farms)
+    .where(eq(farms.phoneNumber, phoneNumber))
+    .limit(1);
+
+  if (!farm) return;
+
+  // Find the most recent unacknowledged reminder for this farm
+  const [reminder] = await db
+    .select({ id: reminders.id })
+    .from(reminders)
+    .where(
+      and(
+        eq(reminders.farmId, farm.id),
+        isNull(reminders.acknowledgedAt),
+        eq(reminders.status, "pending"),
+      ),
+    )
+    .orderBy(desc(reminders.reminderDate), desc(reminders.createdAt))
+    .limit(1);
+
+  if (!reminder) return;
+
+  await db
+    .update(reminders)
+    .set({
+      acknowledgedAt: sql`now()`,
+      status: "delivered",
+      updatedAt: sql`now()`,
+    })
+    .where(eq(reminders.id, reminder.id));
+}
+
+/**
+ * Find due reminders for a specific farm (read-only, no FOR UPDATE SKIP LOCKED).
+ * Used for the in-app banner. Excludes snoozed reminders.
+ */
+export async function findDueRemindersForFarm(
+  db: Database,
+  farmId: string,
+  today: string,
+): Promise<Reminder[]> {
+  const rows = await db
+    .select()
+    .from(reminders)
+    .where(
+      and(
+        eq(reminders.farmId, farmId),
+        eq(reminders.status, "pending"),
+        lte(reminders.reminderDate, today),
+        or(
+          isNull(reminders.snoozedUntil),
+          lte(reminders.snoozedUntil, new Date()),
+        ),
+      ),
+    )
+    .orderBy(reminders.reminderDate);
+
+  return rows.map(toReminder);
+}
+
+/**
+ * Acknowledge a reminder via in-app banner click.
+ * Ownership-checked: only the farm that owns the reminder can acknowledge it.
+ */
+export async function acknowledgeReminder(
+  db: Database,
+  farmId: string,
+  reminderId: string,
+): Promise<void> {
+  await db
+    .update(reminders)
+    .set({
+      acknowledgedAt: sql`now()`,
+      status: "delivered",
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(reminders.id, reminderId), eq(reminders.farmId, farmId)));
+}
+
+/**
+ * Snooze a reminder until a specific time.
+ * Ownership-checked: only the farm that owns the reminder can snooze it.
+ */
+export async function snoozeReminder(
+  db: Database,
+  farmId: string,
+  reminderId: string,
+  until: Date,
+): Promise<void> {
+  await db
+    .update(reminders)
+    .set({
+      snoozedUntil: until,
+      updatedAt: sql`now()`,
+    })
+    .where(and(eq(reminders.id, reminderId), eq(reminders.farmId, farmId)));
 }

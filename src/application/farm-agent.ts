@@ -593,7 +593,11 @@ async function routeInteraction(
   }
   if (interaction.intent === "report") {
     const filter: ReportFilter = interaction.filter
-      ? { ...interaction.filter, reportType: interaction.filter.reportType || "summary" }
+      ? {
+          ...interaction.filter,
+          reportType:
+            (interaction.filter as ReportFilter).reportType || "summary",
+        }
       : { reportType: "summary" };
     const result = await generateReport(db, farmId, filter);
     return [

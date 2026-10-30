@@ -57,6 +57,13 @@
       "when": 1792768864901,
       "tag": "0007_milky_katie_power",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793284522763,
+      "tag": "0008_supreme_fabian_cortez",
+      "breakpoints": true
     }
   ]
 }

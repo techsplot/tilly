@@ -8,9 +8,13 @@ import Drawer from "@/app/components/Drawer";
 import FarmHistory from "@/app/components/FarmHistory";
 import FarmsPanel from "@/app/components/FarmsPanel";
 import MessageBar from "@/app/components/MessageBar";
+import ReminderBanner, {
+  type DueReminder,
+} from "@/app/components/ReminderBanner";
 import WakeWordSettings, {
   type VoiceSettings,
 } from "@/app/components/WakeWordSettings";
+import NotificationsSettings from "@/app/components/NotificationsSettings";
 import { buildGreeting } from "@/app/lib/greeting";
 import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
@@ -19,7 +23,12 @@ const DRAWER_TITLES: Record<MenuChoice, string> = {
   records: "My records",
   farms: "Farms",
   voice: "Voice settings",
+  notifications: "Notifications",
 };
+
+const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
+
+const REMINDER_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
 export default function HomePage() {
   const agent = useFarmAgent();
@@ -32,6 +41,8 @@ export default function HomePage() {
   const [voiceSettingsError, setVoiceSettingsError] = useState<string | null>(
     null,
   );
+  const [currentPhone, setCurrentPhone] = useState<string | null>(null);
+  const [dueReminders, setDueReminders] = useState<DueReminder[]>([]);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const menuButtonRef = useRef<HTMLButtonElement | null>(null);
   const feedEndRef = useRef<HTMLDivElement | null>(null);
@@ -45,8 +56,16 @@ export default function HomePage() {
       try {
         const response = await fetch(`/api/farms/${activeFarmId}/settings`);
         if (!response.ok) throw new Error();
-        const data = (await response.json()) as VoiceSettings;
-        if (!cancelled) setVoiceSettings(data);
+        const data = (await response.json()) as VoiceSettings & {
+          phoneNumber?: string | null;
+        };
+        if (!cancelled) {
+          setVoiceSettings({
+            wakeWord: data.wakeWord,
+            wakeWordEnabled: data.wakeWordEnabled,
+          });
+          setCurrentPhone(data.phoneNumber ?? null);
+        }
       } catch {
         if (!cancelled)
           setVoiceSettingsError("Voice settings could not be loaded.");
@@ -55,6 +74,73 @@ export default function HomePage() {
     return () => {
       cancelled = true;
     };
+  }, [activeFarmId]);
+
+  // Fetch due reminders on mount and poll every 5 minutes
+  useEffect(() => {
+    if (!activeFarmId) return;
+
+    async function fetchDueReminders() {
+      try {
+        const response = await fetch("/api/reminders?due=today");
+        if (!response.ok) return;
+        const data = (await response.json()) as { reminders: DueReminder[] };
+        setDueReminders(data.reminders);
+      } catch {
+        // Silently ignore — not critical if poll fails
+      }
+    }
+
+    void fetchDueReminders();
+    const interval = window.setInterval(
+      () => void fetchDueReminders(),
+      REMINDER_POLL_INTERVAL_MS,
+    );
+    return () => window.clearInterval(interval);
+  }, [activeFarmId]);
+
+  // Register push subscription once when the farm loads, if permission is granted
+  useEffect(() => {
+    if (!activeFarmId) return;
+    if (!("Notification" in window)) return;
+    if (Notification.permission !== "granted") return;
+    if (!("serviceWorker" in navigator)) return;
+    if (!VAPID_PUBLIC_KEY) return;
+
+    void (async () => {
+      try {
+        const registration = await navigator.serviceWorker.ready;
+
+        // Convert URL-safe base64 VAPID public key to Uint8Array
+        const base64 = VAPID_PUBLIC_KEY.replace(/-/g, "+").replace(/_/g, "/");
+        const raw = window.atob(base64);
+        const buffer = new ArrayBuffer(raw.length);
+        const appServerKey = new Uint8Array(buffer);
+        for (let i = 0; i < raw.length; i++) {
+          appServerKey[i] = raw.charCodeAt(i);
+        }
+
+        const subscription = await registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: appServerKey,
+        });
+
+        const json = subscription.toJSON();
+        if (!json.endpoint || !json.keys) return;
+
+        await fetch("/api/push/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            endpoint: json.endpoint,
+            keys: json.keys,
+          }),
+        });
+      } catch {
+        // Silently ignore push registration errors (user may have denied later,
+        // or the browser doesn't support push)
+      }
+    })();
   }, [activeFarmId]);
 
   useEffect(() => {
@@ -102,6 +188,60 @@ export default function HomePage() {
     closeDrawer();
   }
 
+  async function savePhoneNumber(phone: string) {
+    if (!activeFarmId) throw new Error("Your farm is still loading.");
+    const response = await fetch(`/api/farms/${activeFarmId}/settings`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ phone_number: phone }),
+    });
+    const body = (await response.json().catch(() => ({}))) as {
+      error?: string;
+      phoneNumber?: string;
+    };
+    if (!response.ok) {
+      throw new Error(body.error ?? "Phone number could not be saved.");
+    }
+    setCurrentPhone(body.phoneNumber ?? phone);
+  }
+
+  async function patchReminder(
+    id: string,
+    action: "done" | "acknowledge" | "snooze",
+    minutes?: number,
+  ) {
+    await fetch(`/api/reminders/${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        action,
+        ...(minutes !== undefined ? { minutes } : {}),
+      }),
+    });
+    // Re-fetch due reminders after any action
+    try {
+      const response = await fetch("/api/reminders?due=today");
+      if (response.ok) {
+        const data = (await response.json()) as { reminders: DueReminder[] };
+        setDueReminders(data.reminders);
+      }
+    } catch {
+      // Ignore re-fetch errors
+    }
+  }
+
+  async function handleReminderDone(id: string) {
+    await patchReminder(id, "done");
+  }
+
+  async function handleReminderSnooze(id: string) {
+    await patchReminder(id, "snooze", 60);
+  }
+
+  async function handleReminderDismiss(id: string) {
+    await patchReminder(id, "acknowledge");
+  }
+
   const wakeWord = voiceSettings?.wakeWord ?? DEFAULT_WAKE_WORD;
   const placeholder =
     agent.pending && agent.lastQuestionText
@@ -123,6 +263,12 @@ export default function HomePage() {
               {agent.farmError}
             </p>
           )}
+          <ReminderBanner
+            reminders={dueReminders}
+            onDone={handleReminderDone}
+            onSnooze={handleReminderSnooze}
+            onDismiss={handleReminderDismiss}
+          />
           <AgentFeed
             items={agent.feed}
             isLoading={isLoading}
@@ -206,6 +352,12 @@ export default function HomePage() {
                     : "Loading voice settings…")}
               </p>
             ))}
+          {drawer === "notifications" && (
+            <NotificationsSettings
+              currentPhone={currentPhone}
+              onSave={savePhoneNumber}
+            />
+          )}
         </Drawer>
       )}
     </div>
