@@ -16,6 +16,7 @@ import WakeWordSettings, {
 } from "@/app/components/WakeWordSettings";
 import NotificationsSettings from "@/app/components/NotificationsSettings";
 import { buildGreeting } from "@/app/lib/greeting";
+import { subscribeToPush } from "@/app/lib/push";
 import { SAMPLE_FARM_NAME } from "@/src/application/sample-farm-data";
 import { DEFAULT_WAKE_WORD } from "@/src/domain/wake-word";
 
@@ -25,8 +26,6 @@ const DRAWER_TITLES: Record<MenuChoice, string> = {
   voice: "Voice settings",
   notifications: "Notifications",
 };
-
-const VAPID_PUBLIC_KEY = process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY ?? "";
 
 const REMINDER_POLL_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
@@ -104,43 +103,11 @@ export default function HomePage() {
     if (!activeFarmId) return;
     if (!("Notification" in window)) return;
     if (Notification.permission !== "granted") return;
-    if (!("serviceWorker" in navigator)) return;
-    if (!VAPID_PUBLIC_KEY) return;
 
-    void (async () => {
-      try {
-        const registration = await navigator.serviceWorker.ready;
-
-        // Convert URL-safe base64 VAPID public key to Uint8Array
-        const base64 = VAPID_PUBLIC_KEY.replace(/-/g, "+").replace(/_/g, "/");
-        const raw = window.atob(base64);
-        const buffer = new ArrayBuffer(raw.length);
-        const appServerKey = new Uint8Array(buffer);
-        for (let i = 0; i < raw.length; i++) {
-          appServerKey[i] = raw.charCodeAt(i);
-        }
-
-        const subscription = await registration.pushManager.subscribe({
-          userVisibleOnly: true,
-          applicationServerKey: appServerKey,
-        });
-
-        const json = subscription.toJSON();
-        if (!json.endpoint || !json.keys) return;
-
-        await fetch("/api/push/subscribe", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            endpoint: json.endpoint,
-            keys: json.keys,
-          }),
-        });
-      } catch {
-        // Silently ignore push registration errors (user may have denied later,
-        // or the browser doesn't support push)
-      }
-    })();
+    subscribeToPush().catch(() => {
+      // Silently ignore push registration errors (push not configured, or
+      // the browser doesn't support push)
+    });
   }, [activeFarmId]);
 
   useEffect(() => {

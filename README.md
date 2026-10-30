@@ -125,8 +125,9 @@ Working today:
   required-field policy; only agent mode follows the save-first rules above.
 - Run `npm run db:migrate` after pulling to apply the `date_assumed`,
   `event_time`/`time_of_day`, `last_nudged_at`/`nudges_stopped`, multi-farm,
-  and `wake_word`/`wake_word_enabled` columns, and migration 0006, which
-  moves farms on the old "Hey FarmMind" default to "Hey Tilly".
+  and `wake_word`/`wake_word_enabled` columns, migration 0006, which
+  moves farms on the old "Hey FarmMind" default to "Hey Tilly", and the
+  reminder tables and delivery columns (0007 and 0008).
 - **A sample farm.** An empty farm's welcome message and the Farms drawer
   offer "Try a sample farm": a farm named "Sample Farm" with 15 records from
   the past three weeks (one with a missing field, one corrected), so there
@@ -145,10 +146,25 @@ Working today:
 - **Ready to host.** A Docker image, a database health check, and one log
   line per model-backed request with no personal content (see
   [Deployment](#deployment)).
+- **Reminders.** "Remind me to weed the north field tomorrow" sets a
+  reminder. When it is due, `npm run reminder-job` delivers it in steps: an
+  in-app banner if the farmer used Tilly in the last 30 minutes, otherwise a
+  phone notification, then an SMS through Twilio if the notification is not
+  tapped within two hours. Nothing is sent from 22:00 to 07:00 UTC. Farmers
+  can reply DONE to an SMS. Push and SMS are optional: without their keys
+  the job still runs and records the reminder as not delivered.
+- **Install on your phone.** Open Tilly in Chrome on Android and choose
+  "Install app" (or "Add to Home screen"); it opens full screen with its
+  own icon. On iPhone, use Safari's Share → Add to Home Screen. A service
+  worker (`public/sw.js`) shows reminder notifications; it caches nothing,
+  so Tilly needs a connection. The wake word works only while Tilly is open
+  on screen, because phones stop the microphone when the screen locks.
+  Speech recognition works in Chrome on Android; on iPhone it is limited.
 
-Not built yet: the hosted demo itself (the image is ready; the endpoint is
-not created yet), a farm recovery code (deferred), reminders delivered
-outside the app (Phase 11), and evaluation results (Phase 13).
+Not built yet: a farm recovery code (deferred) and evaluation results
+(Phase 13). Known gaps in SMS: the Twilio webhooks do not verify Twilio's
+request signature, and a Twilio trial account only texts numbers verified
+on that account.
 
 ## Prerequisites
 
@@ -267,6 +283,16 @@ Set these on the host or endpoint at runtime:
 | `NEBIUS_MODEL_ANSWER`     | yes      | Ultra or Super model for answers and reports                     |
 | `NEBIUS_BASE_URL`         | no       | Defaults to `https://api.tokenfactory.nebius.com/v1/`            |
 | `MODEL_DAILY_LIMIT`       | no       | Nebius calls allowed per UTC day across all users (default 3000) |
+| `VAPID_PUBLIC_KEY`        | no       | Web push public key (`npx web-push generate-vapid-keys`)         |
+| `VAPID_PRIVATE_KEY`       | no       | Web push private key; never commit it                            |
+| `VAPID_CONTACT`           | no       | `mailto:` address push services can contact                      |
+| `TWILIO_ACCOUNT_SID`      | no       | Twilio account for SMS reminders                                 |
+| `TWILIO_AUTH_TOKEN`       | no       | Twilio auth token                                                |
+| `TWILIO_PHONE_NUMBER`     | no       | Number SMS reminders are sent from                               |
+| `APP_URL`                 | no       | Public HTTPS URL, for Twilio delivery-status callbacks           |
+
+The browser reads the push public key from `GET /api/push/public-key` at
+runtime, so it never has to be baked into the image.
 
 To try the image locally:
 
