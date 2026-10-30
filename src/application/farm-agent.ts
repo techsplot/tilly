@@ -11,7 +11,12 @@ import { isUuid } from "./farm-context";
 import { extractFarmEvent } from "./extract-farm-event";
 import { loadFarmMemory } from "./farm-memory";
 import { resolveFarmReference } from "./farm-resolver";
-import { classifySmallTalk, type SmallTalk } from "../domain/small-talk";
+import {
+  classifySmallTalk,
+  isFillerValue,
+  isNonAnswer,
+  type SmallTalk,
+} from "../domain/small-talk";
 import {
   mentionedActivities,
   namesAnotherActivity,
@@ -719,6 +724,42 @@ async function routeInteraction(
   );
 }
 
+// The grounding check only asks whether a value appears in the farmer's
+// words, and "thank you" does; a filler value is never kept as a name.
+function withoutFillerValues(event: FarmEvent): FarmEvent {
+  return {
+    ...event,
+    crop: event.crop && isFillerValue(event.crop) ? null : event.crop,
+    field: event.field && isFillerValue(event.field) ? null : event.field,
+  };
+}
+
+const gapHintLabels: Record<string, string> = {
+  crop: "the crop",
+  field: "the field",
+};
+
+// After Tilly asked and the answer left a gap, the farmer hears plainly what
+// was saved without, and that they can still add it.
+function withGapHint(
+  actions: Array<Extract<AgentAction, { type: "recorded" }>>,
+): AgentAction[] {
+  const saved = actions[0];
+  if (!saved || saved.possibleDuplicate) return actions;
+  const gaps = saved.event.missingFields.flatMap((field) =>
+    gapHintLabels[field] ? [gapHintLabels[field]] : [],
+  );
+  if (gaps.length === 0) return actions;
+  const named = gaps.join(" and ");
+  return [
+    ...actions,
+    {
+      type: "reply",
+      text: `I saved it without ${named}. Tell me ${named} any time and I'll add it.`,
+    },
+  ];
+}
+
 // Finding 2 + 10: the server, not the browser, owns merging the answer
 // into the conversation, and the next message always ends the pending
 // note — either by answering it (save at once with whatever is known) or
@@ -733,6 +774,18 @@ async function handlePendingClarification(
   pending: Extract<Pending, { kind: "clarification" }>,
   recentEventIds: string[],
 ): Promise<AgentAction[]> {
+  // "thank you" or "I don't know" answers nothing: save what was known and
+  // say what is still missing, without asking the model to read the reply.
+  if (isNonAnswer(message)) {
+    const ended = await recordedAction(
+      db,
+      farmId,
+      pendingEventToFarmEvent(pending.event),
+      currentDate,
+    );
+    return withGapHint([ended]);
+  }
+
   const clarifications = [
     ...pending.clarifications,
     { question: pending.question, answer: message },
@@ -758,24 +811,31 @@ async function handlePendingClarification(
       const merged = await recordedAction(
         db,
         farmId,
-        interaction.events[mergedIndex]!,
+        withoutFillerValues(interaction.events[mergedIndex]!),
         currentDate,
       );
       const rest = interaction.events.filter(
         (_, index) => index !== mergedIndex,
       );
-      if (rest.length === 0) return [merged];
-      return [
-        merged,
-        ...(await applyRecordFlow(
-          db,
-          farmId,
-          message,
-          currentDate,
-          rest,
-          interaction.followUpQuestion,
-        )),
-      ];
+      const hint = withGapHint([merged]).slice(1);
+      if (rest.length === 0) return [merged, ...hint];
+      const restActions = await applyRecordFlow(
+        db,
+        farmId,
+        message,
+        currentDate,
+        rest,
+        interaction.followUpQuestion,
+      );
+      // The hint follows the receipts but comes before any new question,
+      // so the question stays the last thing Tilly says.
+      const receipts = restActions.filter(
+        (action) => action.type !== "question",
+      );
+      const questions = restActions.filter(
+        (action) => action.type === "question",
+      );
+      return [merged, ...receipts, ...hint, ...questions];
     }
   }
 

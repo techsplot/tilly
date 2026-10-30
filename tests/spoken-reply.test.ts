@@ -47,7 +47,7 @@ describe("speakable", () => {
 describe("spokenText", () => {
   it("reads a receipt the way the screen shows it", () => {
     expect(spokenText({ type: "recorded", event: spraying })).toBe(
-      "Recorded: spraying, today, morning (field not given)",
+      "Recorded: spraying, tomatoes, today, morning (field not given)",
     );
   });
 
@@ -106,7 +106,7 @@ describe("latestReply", () => {
     ]);
     expect(reply).toEqual({
       key: tip.id,
-      text: "Recorded: spraying, today, morning (field not given) Want a reminder?",
+      text: "Recorded: spraying, tomatoes, today, morning (field not given) Want a reminder?",
     });
   });
 

@@ -227,9 +227,6 @@ describe("farm agent service", () => {
     });
     if (first[0]?.type !== "question") throw new Error("expected question");
 
-    mockCreate.mockResolvedValueOnce(
-      modelResponse([sprayEvent()], { skip: true }),
-    );
     const second = await handleFarmerMessage(db, farmId, {
       message: "I don't know",
       currentDate: "2026-10-12",
@@ -237,12 +234,17 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
-    expect(second).toHaveLength(1);
+    expect(mockCreate).toHaveBeenCalledTimes(1);
+    expect(second).toHaveLength(2);
     expect(second[0]?.type).toBe("recorded");
     if (second[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(second[0].event.field).toBeNull();
     expect(second[0].event.missingFields).toContain("field");
     expect(second[0].event.status).toBe("confirmed");
+    expect(second[1]).toEqual({
+      type: "reply",
+      text: "I saved it without the field. Tell me the field any time and I'll add it.",
+    });
   });
 
   it("a question-like reply saves with gaps instead of asking again (finding 3, 10)", async () => {
@@ -268,8 +270,7 @@ describe("farm agent service", () => {
     });
 
     expect(mockCreate).toHaveBeenCalledTimes(2);
-    expect(second).toHaveLength(1);
-    expect(second[0]?.type).toBe("recorded");
+    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
   });
 
   it("saves a note with two complete activities as two recorded actions (finding 1, 14)", async () => {
@@ -372,9 +373,11 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
+    // The gap note for the spraying comes after both receipts.
     expect(second.map((action) => action.type)).toEqual([
       "recorded",
       "recorded",
+      "reply",
     ]);
     const timeline = await listTimeline(db, farmId);
     expect(timeline.map((event) => event.activity).sort()).toEqual([
@@ -408,8 +411,7 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
-    expect(second).toHaveLength(1);
-    expect(second[0]?.type).toBe("recorded");
+    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
     if (second[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(second[0].event.activity).toBe("spraying");
     expect(second[0].event.missingFields).toContain("field");
@@ -434,8 +436,7 @@ describe("farm agent service", () => {
       recentEventIds: [],
     });
 
-    expect(second).toHaveLength(1);
-    expect(second[0]?.type).toBe("recorded");
+    expect(second.map((action) => action.type)).toEqual(["recorded", "reply"]);
     if (second[0]?.type !== "recorded") throw new Error("expected recorded");
     expect(second[0].event.activity).toBe("spraying");
     expect(second[0].event.missingFields).toContain("field");
@@ -857,17 +858,61 @@ describe("farm agent service", () => {
     });
     if (first[0]?.type !== "question") throw new Error("expected question");
 
-    mockCreate.mockResolvedValueOnce(modelResponse([], { intent: "other" }));
-    await handleFarmerMessage(db, farmId, {
-      message: "thanks",
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "thank you",
       currentDate: "2026-10-12",
       pending: first[0].pending,
       recentEventIds: [],
     });
 
+    // Never read as a value: live testing saved "thank you" as the crop.
+    expect(mockCreate).toHaveBeenCalledTimes(1);
     const timeline = await listTimeline(db, farmId);
     expect(timeline).toHaveLength(1);
     expect(timeline[0]?.activity).toBe("spraying");
+    expect(timeline[0]?.crop).toBe("maize");
+    expect(timeline[0]?.field).toBeNull();
+    expect(second.at(-1)).toEqual({
+      type: "reply",
+      text: "I saved it without the field. Tell me the field any time and I'll add it.",
+    });
+  });
+
+  it("drops a filler word the model returns as the crop", async () => {
+    const farmId = await createFarm(db);
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([sprayEvent({ crop: null, field: "Back Field" })]),
+    );
+    const first = await handleFarmerMessage(db, farmId, {
+      message: "I sprayed the back field",
+      currentDate: "2026-10-12",
+      recentEventIds: [],
+    });
+    if (first[0]?.type !== "question") throw new Error("expected question");
+
+    mockCreate.mockResolvedValueOnce(
+      modelResponse([
+        sprayEvent({
+          crop: "yes",
+          field: "Back Field",
+          eventDate: "2026-10-12",
+        }),
+      ]),
+    );
+    const second = await handleFarmerMessage(db, farmId, {
+      message: "yes",
+      currentDate: "2026-10-12",
+      pending: first[0].pending,
+      recentEventIds: [],
+    });
+
+    if (second[0]?.type !== "recorded") throw new Error("expected recorded");
+    expect(second[0].event.crop).toBeNull();
+    expect(second[0].event.missingFields).toContain("crop");
+    expect(second[1]).toEqual({
+      type: "reply",
+      text: "I saved it without the crop. Tell me the crop any time and I'll add it.",
+    });
   });
 
   it("propagates a model failure and saves nothing", async () => {

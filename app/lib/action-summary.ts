@@ -44,6 +44,7 @@ export function undoableSummary(action: UndoableAgentAction): string {
   if (action.type === "recorded") {
     if (action.possibleDuplicate) return "Looks like a repeat.";
     const segments: string[] = [action.event.activity];
+    if (action.event.crop) segments.push(action.event.crop);
     if (action.event.field) segments.push(action.event.field);
     segments.push(dateTimeLabel(action.event));
     return `Recorded: ${segments.join(" · ")}${gapNote(action.event.missingFields)}`;
